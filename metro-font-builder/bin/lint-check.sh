@@ -6,8 +6,8 @@ set -e
 echo "🔍 Running Python linting checks (no modifications)..."
 echo
 
-# Navigate to the metro-font-builder directory
-cd "$(dirname "$0")"
+# Navigate to the metro-font-builder directory (parent of bin)
+cd "$(dirname "$0")/.."
 
 # Check if virtual environment exists and activate it
 if [ -d "venv" ]; then

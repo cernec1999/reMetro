@@ -7,7 +7,7 @@ on:
       - 'metro-font-builder/**/*.py'
       - 'metro-font-builder/pyproject.toml'
       - 'metro-font-builder/.flake8'
-      - 'metro-font-builder/lint*.sh'
+      - 'metro-font-builder/bin/lint*.sh'
       - '.github/workflows/lint.yml'
   pull_request:
     branches: [ main, develop ]
@@ -15,23 +15,20 @@ on:
       - 'metro-font-builder/**/*.py'
       - 'metro-font-builder/pyproject.toml'
       - 'metro-font-builder/.flake8'
-      - 'metro-font-builder/lint*.sh'
+      - 'metro-font-builder/bin/lint*.sh'
       - '.github/workflows/lint.yml'
 
 jobs:
   lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.11'
 
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -55,8 +52,8 @@ jobs:
     - name: Run comprehensive linting check
       working-directory: metro-font-builder
       run: |
-        chmod +x lint-check.sh
-        ./lint-check.sh
+        chmod +x bin/lint-check.sh
+        bin/lint-check.sh
 
   # Optional job to show what automatic fixes would be applied
   lint-preview:
@@ -92,4 +89,4 @@ jobs:
         echo "📚 isort import changes:"
         isort --check-only --diff src/ || echo "✅ No import sorting changes needed"
         echo ""
-        echo "ℹ️  To apply these fixes locally, run: ./lint.sh"
+        echo "ℹ️  To apply these fixes locally, run: bin/lint.sh"
