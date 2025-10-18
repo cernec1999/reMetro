@@ -17,7 +17,7 @@ import math
 import os
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -36,11 +36,27 @@ DEFAULT_LETTER_ROWS = 14
 
 @dataclass
 class Point:
+    """A simple 2D point with x and y coordinates."""
+
     x: float
     y: float
 
 
-def find_perspective_transform(src_pts: List[Point], dst_pts: List[Point]) -> np.ndarray:
+def find_perspective_transform(
+    src_pts: List[Point], dst_pts: List[Point]
+) -> np.ndarray:
+    """Find the perspective transformation matrix from source to destination points.
+
+    Args:
+        src_pts: List of 4 source points
+        dst_pts: List of 4 destination points
+
+    Returns:
+        3x3 transformation matrix as numpy array
+
+    Raises:
+        ValueError: If not exactly 4 points provided for src and dst
+    """
     if len(src_pts) != 4 or len(dst_pts) != 4:
         raise ValueError("Need 4 src and 4 dst points")
     A = []
@@ -56,20 +72,45 @@ def find_perspective_transform(src_pts: List[Point], dst_pts: List[Point]) -> np
     return H
 
 
-def warp_perspective_pillow(image: Image.Image, H: np.ndarray, dst_size: Tuple[int, int]) -> Image.Image:
+def warp_perspective_pillow(
+    image: Image.Image, H: np.ndarray, dst_size: Tuple[int, int]
+) -> Image.Image:
+    """Apply perspective transformation to an image using PIL.
+
+    Args:
+        image: Source PIL Image
+        H: 3x3 transformation matrix
+        dst_size: Output image size as (width, height)
+
+    Returns:
+        Transformed PIL Image
+    """
     w, h = dst_size
     H_inv = np.linalg.inv(H)
     if H_inv[2, 2] != 0:
         H_inv = H_inv / H_inv[2, 2]
     coeffs = (
-        H_inv[0, 0], H_inv[0, 1], H_inv[0, 2],
-        H_inv[1, 0], H_inv[1, 1], H_inv[1, 2],
-        H_inv[2, 0], H_inv[2, 1],
+        H_inv[0, 0],
+        H_inv[0, 1],
+        H_inv[0, 2],
+        H_inv[1, 0],
+        H_inv[1, 1],
+        H_inv[1, 2],
+        H_inv[2, 0],
+        H_inv[2, 1],
     )
     return image.transform((w, h), Image.PERSPECTIVE, coeffs, resample=Image.BICUBIC)
 
 
 def pil_to_qpixmap(pil_img: Image.Image) -> QtGui.QPixmap:
+    """Convert a PIL Image to a Qt QPixmap.
+
+    Args:
+        pil_img: PIL Image to convert
+
+    Returns:
+        QPixmap representation of the image
+    """
     if pil_img.mode != "RGBA":
         img = pil_img.convert("RGBA")
     else:
@@ -81,7 +122,10 @@ def pil_to_qpixmap(pil_img: Image.Image) -> QtGui.QPixmap:
 
 
 class ZoomableGraphicsView(QtWidgets.QGraphicsView):
+    """A QGraphicsView with zoom and pan capabilities using mouse and gestures."""
+
     def __init__(self, parent=None):
+        """Initialize the zoomable graphics view."""
         super().__init__(parent)
         self._zoom_level: float = 0.0
         self._zoom_step = 1.25
@@ -98,6 +142,7 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
         self._pan_key_active = False
 
     def wheelEvent(self, event: QtGui.QWheelEvent):
+        """Handle mouse wheel events for zooming when Ctrl is held."""
         if self._pinch_active:
             event.accept()
             return
@@ -113,7 +158,20 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
             return
         super().wheelEvent(event)
 
+    def fit_view(self, rect):
+        """Fit the view to show the specified rectangle."""
+        if rect.isNull():
+            return
+        self._in_fit = True
+        try:
+            self._zoom_level = 0
+            self.setTransform(QtGui.QTransform())
+            self.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+        finally:
+            self._in_fit = False
+
     def fit_to_scene(self):
+        """Fit the view to show the entire scene."""
         scene = self.scene()
         if scene is None:
             return
@@ -129,15 +187,20 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
             self._in_fit = False
 
     def resizeEvent(self, event: QtGui.QResizeEvent):
+        """Handle widget resize events."""
         super().resizeEvent(event)
         if self._zoom_level == 0 and not self._in_fit:
             self.fit_to_scene()
 
     def event(self, event: QtCore.QEvent):
         if event.type() == QtCore.QEvent.Gesture:
-            gesture = event.gesture(QtCore.Qt.PinchGesture)
+            # Cast to QGestureEvent to access gesture() method
+            gesture_event = cast(QtWidgets.QGestureEvent, event)
+            gesture = gesture_event.gesture(QtCore.Qt.PinchGesture)
             if gesture is not None:
-                self._handle_pinch(gesture)
+                # Cast to QPinchGesture for proper typing
+                pinch_gesture = cast(QtWidgets.QPinchGesture, gesture)
+                self._handle_pinch(pinch_gesture)
                 return True
         return super().event(event)
 
@@ -196,7 +259,7 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
         delta = clamped - self._zoom_level
         if abs(delta) < 1e-6:
             return
-        factor = self._zoom_step ** delta
+        factor = self._zoom_step**delta
         self.scale(factor, factor)
         self._zoom_level = clamped
 
@@ -206,7 +269,11 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
             self._pinch_active = True
             self._pinch_initial_zoom = self._zoom_level
             return
-        if state in (QtCore.Qt.GestureUpdated, QtCore.Qt.GestureFinished, QtCore.Qt.GestureCanceled):
+        if state in (
+            QtCore.Qt.GestureUpdated,
+            QtCore.Qt.GestureFinished,
+            QtCore.Qt.GestureCanceled,
+        ):
             total_scale = gesture.totalScaleFactor()
             if total_scale <= 0:
                 return
@@ -217,7 +284,16 @@ class ZoomableGraphicsView(QtWidgets.QGraphicsView):
 
 
 class CellItem(QtWidgets.QGraphicsRectItem):
+    """A clickable cell in the grid editor representing a single pixel."""
+
     def __init__(self, row: int, col: int, size: float):
+        """Initialize a cell item.
+
+        Args:
+            row: Grid row position
+            col: Grid column position
+            size: Size of the cell square in pixels
+        """
         super().__init__(0, 0, size, size)
         self.row = row
         self.col = col
@@ -246,12 +322,17 @@ class CellItem(QtWidgets.QGraphicsRectItem):
 
 
 class GridEditorWidget(ZoomableGraphicsView):
+    """Interactive grid editor for editing letter bitmaps with zoom and pan support."""
+
     offsetsChanged = QtCore.pyqtSignal(int, int)
     letterSizeChanged = QtCore.pyqtSignal(int, int)
 
     def __init__(self, parent=None):
+        """Initialize the grid editor widget."""
         super().__init__(parent)
-        self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
+        self.setRenderHints(
+            QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform
+        )
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._scene = QtWidgets.QGraphicsScene(self)
         self.setScene(self._scene)
@@ -333,10 +414,15 @@ class GridEditorWidget(ZoomableGraphicsView):
         self.bitmap[row, col] = state
 
     def set_letter_width(self, cols: int):
+        """Set the letter width in columns, updating the grid layout.
+
+        Args:
+            cols: Number of columns (will be clamped to valid range)
+        """
         cols = max(1, min(cols, OUTPUT_COLS))
         if cols == self.letter_cols:
             return
-        
+
         old_cols = self.letter_cols
         self.letter_cols = cols
 
@@ -353,13 +439,12 @@ class GridEditorWidget(ZoomableGraphicsView):
                     self._scene.addItem(cell)
                     row_cells.append(cell)
             elif self.letter_cols < old_cols:
-                for c in range(old_cols - 1, self.letter_cols - 1, -1):
+                for _ in range(old_cols - 1, self.letter_cols - 1, -1):
                     cell = row_cells.pop()
                     self._scene.removeItem(cell)
 
         max_col_offset = max(0, OUTPUT_COLS - self.letter_cols)
-        if self.col_offset > max_col_offset:
-            self.col_offset = max_col_offset
+        self.col_offset = min(self.col_offset, max_col_offset)
 
         self._update_selection_rect()
         self._refresh_cells_from_bitmap()
@@ -367,7 +452,9 @@ class GridEditorWidget(ZoomableGraphicsView):
         self.offsetsChanged.emit(self.row_offset, self.col_offset)
         self.letterSizeChanged.emit(self.letter_rows, self.letter_cols)
 
-    def _cell_from_scene_pos(self, scene_pos: QtCore.QPointF) -> Optional[Tuple[int, int]]:
+    def _cell_from_scene_pos(
+        self, scene_pos: QtCore.QPointF
+    ) -> Optional[Tuple[int, int]]:
         size = SCALE
         if scene_pos.x() < 0 or scene_pos.y() < 0:
             return None
@@ -383,7 +470,7 @@ class GridEditorWidget(ZoomableGraphicsView):
         self._apply_stroke(row, col)
 
     def _apply_stroke(self, row: int, col: int):
-        target_state = True if self._stroke_mode else False
+        target_state = bool(self._stroke_mode)
         self._set_cell_state(row, col, target_state)
 
     def _apply_stroke_from_scene(self, scene_pos: QtCore.QPointF):
@@ -397,17 +484,31 @@ class GridEditorWidget(ZoomableGraphicsView):
         self._stroke_active = False
 
     def set_image(self, pil_img: Image.Image):
+        """Set the background image for the grid editor.
+
+        Args:
+            pil_img: PIL Image to display as background
+        """
         self._current_image = pil_img.copy()
         self.pixmap_item.setPixmap(pil_to_qpixmap(pil_img))
         self._scene.setSceneRect(0, 0, pil_img.width, pil_img.height)
         self.fit_to_scene()
 
     def clear_bitmap(self):
+        """Clear all cells in the bitmap, setting them to False/empty."""
         for r in range(self.letter_rows):
             for c in range(self.letter_cols):
                 self._set_cell_state(r, c, False)
 
     def set_bitmap(self, data):
+        """Set the bitmap data for the current letter.
+
+        Args:
+            data: 2D array-like of boolean values representing the bitmap
+
+        Raises:
+            ValueError: If bitmap shape doesn't match current letter dimensions
+        """
         if data is None:
             return
         arr = np.array(data, dtype=bool)
@@ -418,9 +519,16 @@ class GridEditorWidget(ZoomableGraphicsView):
                 self._set_cell_state(r, c, bool(arr[r, c]))
 
     def get_bitmap(self):
+        """Get the current bitmap as a list of lists of integers (0/1).
+
+        Returns:
+            2D list of integers representing the bitmap
+        """
         return self.bitmap.astype(int).tolist()
 
-    def populate_from_image(self, pil_img: Optional[Image.Image] = None, threshold: int = 128):
+    def populate_from_image(
+        self, pil_img: Optional[Image.Image] = None, threshold: int = 128
+    ):
         source = pil_img or self._current_image
         if source is None:
             return
@@ -477,7 +585,9 @@ class GridEditorWidget(ZoomableGraphicsView):
         if event.button() == QtCore.Qt.LeftButton:
             if modifiers & QtCore.Qt.MetaModifier:
                 scene_pos = self.mapToScene(event.pos())
-                rect_scene = self.selection_rect.mapRectToScene(self.selection_rect.rect())
+                rect_scene = self.selection_rect.mapRectToScene(
+                    self.selection_rect.rect()
+                )
                 if rect_scene.contains(scene_pos):
                     self._dragging_selection = True
                     self._drag_start_scene = scene_pos
@@ -485,7 +595,7 @@ class GridEditorWidget(ZoomableGraphicsView):
                     self._initial_col_offset = self.col_offset
                     event.accept()
                     return
-            elif not (modifiers & (QtCore.Qt.MetaModifier | QtCore.Qt.ControlModifier)):
+            elif not modifiers & (QtCore.Qt.MetaModifier | QtCore.Qt.ControlModifier):
                 scene_pos = self.mapToScene(event.pos())
                 coords = self._cell_from_scene_pos(scene_pos)
                 if coords is not None:
@@ -533,9 +643,18 @@ class GridEditorWidget(ZoomableGraphicsView):
             return
 
         key = event.key()
-        if key in (QtCore.Qt.Key_Left, QtCore.Qt.Key_Right, QtCore.Qt.Key_Up, QtCore.Qt.Key_Down):
-            horizontal_step = 1 if (modifiers & QtCore.Qt.ShiftModifier) else self.letter_cols + 1
-            vertical_step = 1 if (modifiers & QtCore.Qt.ShiftModifier) else self.letter_rows + 2
+        if key in (
+            QtCore.Qt.Key_Left,
+            QtCore.Qt.Key_Right,
+            QtCore.Qt.Key_Up,
+            QtCore.Qt.Key_Down,
+        ):
+            horizontal_step = (
+                1 if (modifiers & QtCore.Qt.ShiftModifier) else self.letter_cols + 1
+            )
+            vertical_step = (
+                1 if (modifiers & QtCore.Qt.ShiftModifier) else self.letter_rows + 2
+            )
 
             new_row = self.row_offset
             new_col = self.col_offset
@@ -552,12 +671,14 @@ class GridEditorWidget(ZoomableGraphicsView):
             self.set_offsets(new_row, new_col)
             event.accept()
             return
-        elif key == QtCore.Qt.Key_BracketLeft:
+
+        if key == QtCore.Qt.Key_BracketLeft:
             step = 1 if not (modifiers & QtCore.Qt.ShiftModifier) else 2
             self.set_letter_width(self.letter_cols - step)
             event.accept()
             return
-        elif key == QtCore.Qt.Key_BracketRight:
+
+        if key == QtCore.Qt.Key_BracketRight:
             step = 1 if not (modifiers & QtCore.Qt.ShiftModifier) else 2
             self.set_letter_width(self.letter_cols + step)
             event.accept()
@@ -567,7 +688,15 @@ class GridEditorWidget(ZoomableGraphicsView):
 
 
 class LetterPreviewCard(QtWidgets.QFrame):
+    """A preview card showing a letter and its bitmap representation."""
+
     def __init__(self, letter: str, bitmap):
+        """Initialize the letter preview card.
+
+        Args:
+            letter: The character this card represents
+            bitmap: 2D array of the letter's bitmap data
+        """
         super().__init__()
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
         layout = QtWidgets.QVBoxLayout(self)
@@ -606,6 +735,8 @@ def render_letter_pixmap(bitmap, scale: int = 12) -> QtGui.QPixmap:
 
 
 class LetterPreviewWidget(QtWidgets.QScrollArea):
+    """Scrollable widget for displaying letter preview cards."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
@@ -640,6 +771,8 @@ class LetterPreviewWidget(QtWidgets.QScrollArea):
 
 
 class HandleItem(QtWidgets.QGraphicsObject):
+    """Draggable handle for image correction."""
+
     moved = QtCore.pyqtSignal(float, float, int)
 
     def __init__(self, idx, x, y, radius=6, parent=None):
@@ -658,6 +791,7 @@ class HandleItem(QtWidgets.QGraphicsObject):
         return QtCore.QRectF(-r, -r, 2 * r, 2 * r)
 
     def paint(self, painter: QtGui.QPainter, option, widget=None):
+        # pylint: disable=unused-argument  # Qt API requirement
         painter.setPen(self._pen)
         painter.setBrush(self._brush)
         painter.drawEllipse(self.boundingRect())
@@ -670,6 +804,8 @@ class HandleItem(QtWidgets.QGraphicsObject):
 
 
 class QuadScene(QtWidgets.QGraphicsScene):
+    """Graphics scene for quadrilateral image correction."""
+
     def __init__(self, pixmap: QtGui.QPixmap, image_size: Tuple[int, int]):
         super().__init__()
         self.img_item = self.addPixmap(pixmap)
@@ -707,6 +843,8 @@ class QuadScene(QtWidgets.QGraphicsScene):
 
 
 class PreviewWidget(QtWidgets.QLabel):
+    """Widget for displaying image previews."""
+
     def __init__(self):
         super().__init__()
         self.setAlignment(QtCore.Qt.AlignCenter)
@@ -738,14 +876,21 @@ class PreviewWidget(QtWidgets.QLabel):
             y0 = row * SCALE
             x1 = x0 + cols * SCALE
             y1 = y0 + rows * SCALE
-            draw.rectangle([x0, y0, x1, y1], outline=(255, 215, 0), width=2)
+            draw.rectangle((x0, y0, x1, y1), outline=(255, 215, 0), width=2)
         pm = pil_to_qpixmap(img.resize((OUT_W // 3, OUT_H // 3), Image.NEAREST))
         self._pix = pm
         self.setPixmap(pm)
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    """Main application window for the WMATA Metro Font Builder.
+
+    Provides tools for perspective correction of metro display photos
+    and building fonts from the corrected images.
+    """
+
     def __init__(self):
+        """Initialize the main window with all UI components."""
         super().__init__()
         self.setWindowTitle("WMATA Dot Matrix Helper (PyQt5)")
         self.resize(1200, 800)
@@ -767,7 +912,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.central_tabs.addTab(self.grid_editor, "Grid Editor")
         self.central_tabs.setTabEnabled(1, False)
         self.letter_preview = LetterPreviewWidget()
-        self.letter_preview_index = self.central_tabs.addTab(self.letter_preview, "Letter Preview")
+        self.letter_preview_index = self.central_tabs.addTab(
+            self.letter_preview, "Letter Preview"
+        )
         self.central_tabs.setTabEnabled(self.letter_preview_index, False)
         self.setCentralWidget(self.central_tabs)
 
@@ -778,7 +925,9 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_open.clicked.connect(self.open_image)
         layout.addWidget(btn_open)
 
-        self.lbl_aspect = QtWidgets.QLabel(f"Output: {OUTPUT_COLS}x{OUTPUT_ROWS} (scaled x{SCALE})")
+        self.lbl_aspect = QtWidgets.QLabel(
+            f"Output: {OUTPUT_COLS}x{OUTPUT_ROWS} (scaled x{SCALE})"
+        )
         layout.addWidget(self.lbl_aspect)
 
         btn_apply = QtWidgets.QPushButton("Apply Perspective")
@@ -803,13 +952,17 @@ class MainWindow(QtWidgets.QMainWindow):
         offset_layout.addSpacing(6)
         offset_layout.addWidget(QtWidgets.QLabel("Row"))
         self.row_offset_spin = QtWidgets.QSpinBox()
-        self.row_offset_spin.setRange(0, max(0, OUTPUT_ROWS - self.grid_editor.letter_rows))
+        self.row_offset_spin.setRange(
+            0, max(0, OUTPUT_ROWS - self.grid_editor.letter_rows)
+        )
         self.row_offset_spin.setValue(0)
         offset_layout.addWidget(self.row_offset_spin)
         offset_layout.addSpacing(6)
         offset_layout.addWidget(QtWidgets.QLabel("Col"))
         self.col_offset_spin = QtWidgets.QSpinBox()
-        self.col_offset_spin.setRange(0, max(0, OUTPUT_COLS - self.grid_editor.letter_cols))
+        self.col_offset_spin.setRange(
+            0, max(0, OUTPUT_COLS - self.grid_editor.letter_cols)
+        )
         self.col_offset_spin.setValue(0)
         offset_layout.addWidget(self.col_offset_spin)
         layout.addLayout(offset_layout)
@@ -870,7 +1023,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scene: Optional[QuadScene] = None
         self.font_data: Dict[str, List[List[int]]] = {}
         self.grid_editor.set_offsets(0, 0)
-        self.preview.set_letter_outline(0, 0, self.grid_editor.letter_rows, self.grid_editor.letter_cols)
+        self.preview.set_letter_outline(
+            0, 0, self.grid_editor.letter_rows, self.grid_editor.letter_cols
+        )
         self.update_letter_preview_tab()
 
     def on_offsets_changed(self):
@@ -883,7 +1038,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.row_offset_spin.setValue(row)
         with QtCore.QSignalBlocker(self.col_offset_spin):
             self.col_offset_spin.setValue(col)
-        self.preview.set_letter_outline(row, col, self.grid_editor.letter_rows, self.grid_editor.letter_cols)
+        self.preview.set_letter_outline(
+            row, col, self.grid_editor.letter_rows, self.grid_editor.letter_cols
+        )
         self.update_preview()
 
     def on_letter_size_changed(self, rows: int, cols: int):
@@ -912,7 +1069,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.letter_preview.update_letters(self.font_data)
         has_letters = bool(self.font_data)
         self.central_tabs.setTabEnabled(self.letter_preview_index, has_letters)
-        if not has_letters and self.central_tabs.currentIndex() == self.letter_preview_index:
+        if (
+            not has_letters
+            and self.central_tabs.currentIndex() == self.letter_preview_index
+        ):
             if self.grid_editor.isEnabled():
                 self.central_tabs.setCurrentWidget(self.grid_editor)
             else:
@@ -931,7 +1091,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image = Image.open(path).convert("RGB")
         pix = QtGui.QPixmap(path)
         if pix.isNull():
-            QtWidgets.QMessageBox.critical(self, "Error", "Failed to load image into QPixmap.")
+            QtWidgets.QMessageBox.critical(
+                self, "Error", "Failed to load image into QPixmap."
+            )
             return
         self.scene = QuadScene(pix, (pix.width(), pix.height()))
         self.graphics_view.setScene(self.scene)
@@ -956,8 +1118,12 @@ class MainWindow(QtWidgets.QMainWindow):
         H = find_perspective_transform(src_pts, dst_pts)
         self.corrected = warp_perspective_pillow(self.image, H, (OUT_W, OUT_H))
         self.grid_editor.set_image(self.corrected)
-        self.grid_editor.set_offsets(self.row_offset_spin.value(), self.col_offset_spin.value())
-        self.grid_editor.populate_from_image(self.corrected, self.threshold_spin.value())
+        self.grid_editor.set_offsets(
+            self.row_offset_spin.value(), self.col_offset_spin.value()
+        )
+        self.grid_editor.populate_from_image(
+            self.corrected, self.threshold_spin.value()
+        )
         self.grid_editor.setEnabled(True)
         self.central_tabs.setTabEnabled(1, True)
         self.central_tabs.setCurrentWidget(self.grid_editor)
@@ -968,7 +1134,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.corrected is None:
             return
         row, col = self.grid_editor.get_offsets()
-        self.preview.set_letter_outline(row, col, self.grid_editor.letter_rows, self.grid_editor.letter_cols)
+        self.preview.set_letter_outline(
+            row, col, self.grid_editor.letter_rows, self.grid_editor.letter_cols
+        )
         self.preview.show_grid = self.chk_grid.isChecked()
         self.preview.set_image(self.corrected)
         self.grid_editor.set_show_grid(self.chk_grid.isChecked())
@@ -976,7 +1144,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def auto_fill_grid(self):
         if self.corrected is None or not self.grid_editor.isEnabled():
             return
-        self.grid_editor.populate_from_image(self.corrected, self.threshold_spin.value())
+        self.grid_editor.populate_from_image(
+            self.corrected, self.threshold_spin.value()
+        )
 
     def save_current_letter(self):
         if not self.grid_editor.isEnabled():
@@ -984,7 +1154,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         letter = (self.letter_input.text() or "").strip()
         if not letter:
-            QtWidgets.QMessageBox.information(self, "Font", "Enter a letter name first.")
+            QtWidgets.QMessageBox.information(
+                self, "Font", "Enter a letter name first."
+            )
             return
         letter = letter[0]
         self.font_data[letter] = self.grid_editor.get_bitmap()
@@ -1011,51 +1183,67 @@ class MainWindow(QtWidgets.QMainWindow):
         if data is None:
             return
         if not isinstance(data, list) or not data:
-            QtWidgets.QMessageBox.warning(self, "Font", "Stored letter data is empty or invalid.")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", "Stored letter data is empty or invalid."
+            )
             return
         if any(not isinstance(row, list) for row in data):
-            QtWidgets.QMessageBox.warning(self, "Font", "Stored letter has invalid row data.")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", "Stored letter has invalid row data."
+            )
             return
         row_lengths = {len(row) for row in data}
         if not row_lengths or len(row_lengths) != 1:
-            QtWidgets.QMessageBox.warning(self, "Font", "Stored letter has inconsistent row lengths.")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", "Stored letter has inconsistent row lengths."
+            )
             return
         cols = row_lengths.pop()
         if cols <= 0 or cols > OUTPUT_COLS:
-            QtWidgets.QMessageBox.warning(self, "Font", "Stored letter has an invalid width.")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", "Stored letter has an invalid width."
+            )
             return
         if len(data) != self.grid_editor.letter_rows:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Font",
-                f"Stored letter height {len(data)} does not match editor height {self.grid_editor.letter_rows}.",
+            message = (
+                f"Stored letter height {len(data)} does not match "
+                f"editor height {self.grid_editor.letter_rows}."
             )
+            QtWidgets.QMessageBox.warning(self, "Font", message)
             return
         self.grid_editor.set_letter_width(cols)
         try:
             self.grid_editor.set_bitmap(data)
         except ValueError as exc:
-            QtWidgets.QMessageBox.warning(self, "Font", f"Failed to load letter data: {exc}")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", f"Failed to load letter data: {exc}"
+            )
 
     def save_font_file(self):
         if not self.font_data:
             QtWidgets.QMessageBox.information(self, "Font", "No letters to save yet.")
             return
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save font", "font.json", "JSON (*.json)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save font", "font.json", "JSON (*.json)"
+        )
         if not path:
             return
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(self.font_data, fh, indent=2)
 
     def load_font_file(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load font", "", "JSON (*.json)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load font", "", "JSON (*.json)"
+        )
         if not path:
             return
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
-            QtWidgets.QMessageBox.warning(self, "Font", f"Could not load font file: {exc}")
+            QtWidgets.QMessageBox.warning(
+                self, "Font", f"Could not load font file: {exc}"
+            )
             return
         cleaned: Dict[str, List[List[int]]] = {}
         for letter, bitmap in data.items():
@@ -1093,9 +1281,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def export_data(self):
         if self.corrected is None:
-            QtWidgets.QMessageBox.information(self, "Export", "Apply perspective first.")
+            QtWidgets.QMessageBox.information(
+                self, "Export", "Apply perspective first."
+            )
             return
-        outdir = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose export folder")
+        outdir = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Choose export folder"
+        )
         if not outdir:
             return
         base = os.path.splitext(os.path.basename(self.image_path or "output"))[0]
@@ -1104,6 +1296,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    """Main entry point for the application."""
     app = QtWidgets.QApplication(sys.argv)
     window = MainWindow()
     window.show()

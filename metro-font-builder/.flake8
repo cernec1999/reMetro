@@ -1,0 +1,37 @@
+[flake8]
+max-line-length = 88
+extend-ignore = 
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # E501: line too long (handled by black)
+    E501,
+    # D101: Missing docstring in public class (too many to fix at once)
+    D101,
+    # D102: Missing docstring in public method (too many to fix at once)
+    D102,
+    # D103: Missing docstring in public function (too many to fix at once)
+    D103,
+    # D107: Missing docstring in __init__ (too many to fix at once)
+    D107,
+    # D212: Multi-line docstring summary should start at the first line
+    D212,
+    # D415: First line should end with a period, question mark, or exclamation point
+    D415,
+    # I100, I201: Import order issues (handled by isort)
+    I100,
+    I201
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    build,
+    dist,
+    *.egg-info
+per-file-ignores =
+    # Allow unused imports in __init__.py files
+    __init__.py:F401
+max-complexity = 15
+docstring-convention = google
