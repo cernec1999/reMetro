@@ -16,12 +16,16 @@ import json
 import math
 import os
 import sys
+import struct
+import statistics
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 from PIL import Image, ImageDraw
 from PyQt5 import QtCore, QtGui, QtWidgets
+from pcffont import PcfFontBuilder, PcfGlyph
+from u8g2 import export_u8g2_from_font_data
 
 OUTPUT_COLS = 192
 # In reality, this is 64, but we have additional padding on top and bottom
@@ -32,7 +36,9 @@ OUT_W = OUTPUT_COLS * SCALE
 OUT_H = OUTPUT_ROWS * SCALE
 DEFAULT_LETTER_COLS = 11
 DEFAULT_LETTER_ROWS = 14
-
+ASCII_FIRST = 32
+ASCII_LAST  = 126
+ASCII_LEN   = ASCII_LAST - ASCII_FIRST + 1  # 95
 
 @dataclass
 class Point:
@@ -1016,6 +1022,16 @@ class MainWindow(QtWidgets.QMainWindow):
         font_actions.addWidget(btn_save_font)
         layout.addLayout(font_actions)
 
+        # PCF export button
+        btn_export_pcf = QtWidgets.QPushButton("Export PCF font…")
+        btn_export_pcf.clicked.connect(self.export_pcf_font)
+        layout.addWidget(btn_export_pcf)
+
+        # MTR export button
+        btn_export_mtr = QtWidgets.QPushButton("Export U8G2 font…")
+        btn_export_mtr.clicked.connect(self.export_u8g2_font_v1)
+        layout.addWidget(btn_export_mtr)
+
         dock = QtWidgets.QDockWidget("Tools", self)
         dock.setWidget(side)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
@@ -1152,13 +1168,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.grid_editor.isEnabled():
             QtWidgets.QMessageBox.information(self, "Font", "Apply perspective first.")
             return
-        letter = (self.letter_input.text() or "").strip()
-        if not letter:
+        letter = self.letter_input.text()
+        if letter == "":
             QtWidgets.QMessageBox.information(
                 self, "Font", "Enter a letter name first."
             )
             return
-        letter = letter[0]
+        # Allow space character by checking for explicit " " input
+        if letter == " ":
+            letter = " "
+        else:
+            letter = letter.strip()
+            if not letter:
+                QtWidgets.QMessageBox.information(
+                    self, "Font", "Enter a letter name first."
+                )
+                return
+            letter = letter[0]
         self.font_data[letter] = self.grid_editor.get_bitmap()
         self.refresh_letters_list(select_letter=letter)
 
@@ -1267,6 +1293,106 @@ class MainWindow(QtWidgets.QMainWindow):
             cleaned[letter[0]] = (arr > 0).astype(int).tolist()
         self.font_data = cleaned
         self.refresh_letters_list()
+    
+    def export_u8g2_font_v1(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export U8g2 font", "metro_u8g2.bin", "U8g2 Font (*.bin)"
+        )
+        if not path:
+            return
+        export_u8g2_from_font_data(self.font_data, path)
+
+    def export_pcf_font(self):
+        """Export the current font data as a PCF font file."""
+        if not self.font_data:
+            QtWidgets.QMessageBox.information(self, "PCF Export", "No letters to export yet.")
+            return
+
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export PCF font", "metro_font.pcf", "PCF Font (*.pcf)"
+        )
+        if not path:
+            return
+
+        try:
+            # Create PCF font builder
+            builder = PcfFontBuilder()
+            
+            # Configure font metrics - assuming Metro display font characteristics
+            builder.config.font_ascent = DEFAULT_LETTER_ROWS
+            builder.config.font_descent = 0
+
+            EXTRA_TRACK = 1 # We add 1 pixel of extra tracking
+            BASELINE_OFFSET = 0 # Baseline offset from bottom
+            
+            # Add glyphs for each letter
+            for letter, bitmap in self.font_data.items():
+                bitmap_array = np.array(bitmap, dtype=int)
+                rows, cols = bitmap_array.shape
+
+                lsb = 0  # left side bearing in pixels (set >0 if you want space before)
+                advance = lsb + cols + EXTRA_TRACK
+
+                glyph = PcfGlyph(
+                    name=letter,
+                    encoding=ord(letter),
+                    scalable_width=advance * 1000,   # SWIDTH in 1/1000 em (rough but consistent)
+                    character_width=advance,         # the actual advance width in pixels
+                    dimensions=(cols, rows),         # bitmap bounding box
+                    offset=(lsb, BASELINE_OFFSET),   # (left bearing, vertical offset)
+                    bitmap=bitmap_array.tolist(),
+                )
+                builder.glyphs.append(glyph)
+            
+            # Set font properties
+            builder.properties.foundry = 'reMetro'
+            builder.properties.family_name = 'Metro Display'
+            builder.properties.weight_name = 'Medium'
+            builder.properties.slant = 'R'  # Roman (upright)
+            builder.properties.setwidth_name = 'Normal'
+            builder.properties.add_style_name = 'Dot Matrix'
+            builder.properties.pixel_size = DEFAULT_LETTER_ROWS
+            builder.properties.point_size = builder.properties.pixel_size * 10
+            builder.properties.resolution_x = 75
+            builder.properties.resolution_y = 75
+            builder.properties.spacing = 'P'  # Proportional
+            
+            # Calculate average width
+            if builder.glyphs:
+                builder.properties.average_width = round(
+                    statistics.fmean(glyph.character_width * 10 for glyph in builder.glyphs)
+                )
+            else:
+                builder.properties.average_width = DEFAULT_LETTER_COLS * 10
+                
+            builder.properties.charset_registry = 'ISO10646'
+            builder.properties.charset_encoding = '1'
+            builder.properties.generate_xlfd()
+            
+            # Additional properties
+            builder.properties.x_height = DEFAULT_LETTER_ROWS // 2
+            builder.properties.cap_height = DEFAULT_LETTER_ROWS
+            builder.properties.underline_position = 0
+            builder.properties.underline_thickness = 0
+            builder.properties.font_version = '1.0.0'
+            builder.properties.copyright = 'GPLv3'
+            
+            # Save the PCF font
+            builder.save(path)
+            
+            QtWidgets.QMessageBox.information(
+                self, 
+                "PCF Export", 
+                f"Successfully exported PCF font to {path}\n\n"
+                f"Font contains {len(builder.glyphs)} characters."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "PCF Export Error", 
+                f"Failed to export PCF font:\n{str(e)}"
+            )
 
     def refresh_letters_list(self, select_letter: Optional[str] = None):
         with QtCore.QSignalBlocker(self.letters_list):

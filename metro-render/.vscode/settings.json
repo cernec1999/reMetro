@@ -1,0 +1,15 @@
+{
+    "rust-analyzer.cargo.allTargets": true,
+    "rust-analyzer.cargo.target": null,
+    "rust-analyzer.check.workspace": true,
+    "rust-analyzer.server.extraEnv": {
+        "RUSTUP_TOOLCHAIN": "stable"
+    },
+    "rust-analyzer.check.extraEnv": {
+        "RUSTUP_TOOLCHAIN": "stable"
+    },
+    "rust-analyzer.cargo.extraEnv": {
+        "RUSTUP_TOOLCHAIN": "stable"
+    },
+    "rust-analyzer.cargo.features": "all"
+}
