@@ -1,0 +1,11 @@
+[package]
+name = "metro-fetch"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "metro-fetch"
+path = "./src/main.rs"
+
+[dependencies]
+metro-common = { path = "../metro-common", features = ["std"] }

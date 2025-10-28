@@ -25,8 +25,8 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // Display configuration
-const ROWS: usize = 32;
-const COLS: usize = 128;
+const ROWS: usize = 64;
+const COLS: usize = 192;
 const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
