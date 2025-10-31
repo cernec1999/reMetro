@@ -5,9 +5,11 @@ use bt_hci::controller::ExternalController;
 use embassy_executor::Spawner;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
+use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hub75::framebuffer::plain::DmaFrameBuffer;
+use esp_hub75::framebuffer::tiling::{ChainTopRightDown, TiledFrameBuffer, compute_tiled_cols};
 use esp_hub75::framebuffer::{compute_frame_count, compute_rows};
 use esp_hub75::{Hub75, Hub75Pins16};
 use esp_radio::ble::controller::BleConnector;
@@ -24,13 +26,34 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-// Display configuration
-const ROWS: usize = 64;
-const COLS: usize = 192;
-const BITS: u8 = 4;
-const NROWS: usize = compute_rows(ROWS);
+const BITS: u8 = 3;
+const TILED_COLS: usize = 3;
+const TILED_ROWS: usize = 2;
+const PANEL_ROWS: usize = 32;
+const PANEL_COLS: usize = 64;
+const FB_COLS: usize = compute_tiled_cols(PANEL_COLS, TILED_ROWS, TILED_COLS);
+const NROWS: usize = compute_rows(PANEL_ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
-type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
+
+type FBType = DmaFrameBuffer<PANEL_ROWS, FB_COLS, NROWS, BITS, FRAME_COUNT>;
+type TiledFBType = TiledFrameBuffer<
+    FBType,
+    ChainTopRightDown<PANEL_ROWS, PANEL_COLS, TILED_ROWS, TILED_COLS>,
+    PANEL_ROWS,
+    PANEL_COLS,
+    NROWS,
+    BITS,
+    FRAME_COUNT,
+    TILED_ROWS,
+    TILED_COLS,
+    FB_COLS,
+>;
+
+pub struct Hub75Peripherals<'d> {
+    pub lcd_cam: LCD_CAM<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
+    pub pins: Hub75Pins16<'d>,
+}
 
 // BLE configuration
 const CONNECTIONS_MAX: usize = 1;
@@ -97,7 +120,7 @@ async fn main(spawner: Spawner) -> ! {
     )
     .expect("Failed to create HUB75 display");
 
-    let mut fb = FBType::new();
+    let mut fb = TiledFBType::new();
     let font = FontRenderer::new::<MetroFont>().with_line_height(16);
 
     // Sample train prediction data
