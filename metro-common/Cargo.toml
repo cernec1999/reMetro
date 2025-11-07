@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-# Build with the standard library by default
-default = ["no_std"]
+# Use the standard library by default.
+default = ["std"]
+
+# When enabled, compiles with the standard library (and serde's std bits).
 std = ["serde/std"]
 
-# no_std build
-no_std = ["dep:heapless"]
+# Pulls in heapless for no_std builds.
+heapless = ["dep:heapless"]
 
 [dependencies]
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }
 heapless = { version = "0.9.1", optional = true, features = ["serde"] }
+thiserror = { version = "2.0.17", default-features = false }
