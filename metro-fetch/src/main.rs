@@ -69,7 +69,9 @@ async fn main() {
                 let events = events.unwrap();
 
                 for event in events {
-                    mqtt_publisher.handle_update(event).await.unwrap();
+                    if let Err(e) = mqtt_publisher.handle_update(event).await {
+                        eprintln!("Error publishing update: {}", e);
+                    }
                 }
             }
 
