@@ -1,20 +1,11 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+use core::fmt;
+use std::{fmt::Display, num::ParseIntError, str::FromStr};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-// If someone disables `std`, they must enable `heapless`.
-#[cfg(all(not(feature = "std"), not(feature = "heapless")))]
-compile_error!("Building `metro-common` without `std` requires enabling the `heapless` feature.");
-
-#[cfg(feature = "std")]
-pub type MetroString<const N: usize> = std::string::String;
-#[cfg(feature = "std")]
-pub type MetroVec<T, const N: usize> = std::vec::Vec<T>;
-
-#[cfg(not(feature = "std"))]
-pub type MetroString<const N: usize> = heapless::String<N>;
-#[cfg(not(feature = "std"))]
-pub type MetroVec<T, const N: usize> = heapless::Vec<T, N>;
+pub mod predictions;
+pub mod utils;
 
 #[derive(Debug, Error)]
 pub enum ReMetroError {
@@ -30,4 +21,20 @@ pub enum ReMetroError {
     CarsConversion,
 }
 
-pub mod predictions;
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct WMATAPlatformCode(pub u8);
+
+impl FromStr for WMATAPlatformCode {
+    type Err = ParseIntError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse::<u8>()?))
+    }
+}
+
+impl Display for WMATAPlatformCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+pub type WMATAStationCode = String;

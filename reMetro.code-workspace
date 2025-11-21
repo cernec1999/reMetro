@@ -6,7 +6,7 @@
         },
         {
             "name": "📟 Rust ESP32S3 Firmware",
-            "path": "./metro-esp32"
+            "path": "./remetro-esp32s3"
         },
         {
             "name": "🖌️ Metro Render Library", 

@@ -1,10 +1,8 @@
 use std::num::ParseIntError;
 
-use metro_common::ReMetroError;
+use metro_common::{ReMetroError, predictions::api::TrainPredictionsRequest};
 use reqwest::{StatusCode, header::InvalidHeaderValue};
 use thiserror::Error;
-
-use crate::station_directory::SubscriptionKey;
 
 #[derive(Debug, Error)]
 pub enum WMATAClientError {
@@ -35,7 +33,7 @@ pub enum StationDirectoryError {
     PlatformParseError(#[from] ParseIntError),
     /// If a station code is not found
     #[error("Station and/or platform code not found: {0}")]
-    InvalidPlatformKey(SubscriptionKey),
+    InvalidStationOrPlatform(TrainPredictionsRequest),
     /// If a RwLock is poisoned
     #[error("RwLock poisoned: {0}")]
     RwLockPoisonError(String),

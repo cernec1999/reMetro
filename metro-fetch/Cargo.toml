@@ -10,8 +10,9 @@ path = "./src/main.rs"
 [dependencies]
 dotenvy = "0.15.7"
 envy = "0.4.2"
-metro-common = { path = "../metro-common", features = ["std"] }
+metro-common = { path = "../metro-common" }
 reqwest = "0.12.24"
+rumqttc = "0.25.0"
 serde = "1.0.228"
 serde_json = "1.0.145"
 thiserror = "2.0.17"
