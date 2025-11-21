@@ -41,10 +41,7 @@ impl TrainLine {
             "YL" => Ok(TrainLine::Yellow),
             "SV" => Ok(TrainLine::Silver),
             "No" | "--" => Ok(TrainLine::NoPassengers),
-            _ => {
-                eprintln!("Invalid line code encountered: {}", s);
-                Err(ReMetroError::LineConversion)
-            }
+            _ => Err(ReMetroError::LineConversion),
         }
     }
 }
