@@ -10,8 +10,7 @@ fn main() {
 
     // TODO: Initialize WiFi here
 
-    // MQTT Config
-    let conf = MqttClientConfiguration::default();
+    // TODO: MQTT Config
 
     log::info!("Hello, world!");
 }
