@@ -38,3 +38,13 @@ pub enum StationDirectoryError {
     #[error("RwLock poisoned: {0}")]
     RwLockPoisonError(String),
 }
+
+#[derive(Debug, Error)]
+pub enum PublisherError {
+    /// If an error occurs while publishing to MQTT
+    #[error("Publisher error: {0}")]
+    MqttClient(#[from] rumqttc::ClientError),
+    /// If an error occurs while serializing the payload
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+}

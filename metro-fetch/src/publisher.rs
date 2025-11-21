@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use metro_common::predictions::api::TrainPredictionsRequest;
 
-use crate::station_directory::DirectoryEvent;
+use crate::{errors::PublisherError, station_directory::DirectoryEvent};
 
 pub struct ReMetroPublisher {
     client: rumqttc::AsyncClient,
@@ -25,7 +25,7 @@ impl ReMetroPublisher {
         ReMetroPublisher { client }
     }
 
-    pub async fn handle_update(&self, update: DirectoryEvent) -> Result<(), rumqttc::ClientError> {
+    pub async fn handle_update(&self, update: DirectoryEvent) -> Result<(), PublisherError> {
         let topic = match update.key {
             TrainPredictionsRequest::Station(station_code) => {
                 format!("reMetro/v1/station/{}", station_code)
@@ -38,10 +38,11 @@ impl ReMetroPublisher {
             }
         };
 
-        let payload = serde_json::to_vec(&update.update).unwrap();
+        let payload = serde_json::to_vec(&update.update)?;
 
-        self.client
+        Ok(self
+            .client
             .publish(topic, rumqttc::QoS::AtLeastOnce, false, payload)
-            .await
+            .await?)
     }
 }
