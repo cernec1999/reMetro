@@ -1,20 +1,32 @@
 {
     "folders": [
         {
-            "name": "🖥️ Desktop Simulator",
-            "path": "./metro-simulator"
+            "name": "🦀 Rust Common Library", 
+            "path": "./metro-common"
         },
         {
-            "name": "🎨 Render Library", 
+            "name": "📟 Rust ESP32S3 Firmware",
+            "path": "./remetro-esp32s3"
+        },
+        {
+            "name": "🖌️ Metro Render Library", 
             "path": "./metro-render"
         },
         {
-            "name": "🔧 ESP32 Firmware",
-            "path": "./metro-esp32"
+            "name": "🚄 Metro Fetch API",
+            "path": "./metro-fetch"
+        },
+        {
+            "name": "☁️ Cloud",
+            "path": "./metro-cloud"
         },
         {
             "name": "🔧 Font Builder",
             "path": "./metro-font-builder"
+        },
+        {
+            "name": "🖥️ Desktop Simulator",
+            "path": "./metro-simulator"
         },
         {
             "name": "📁 Root",
@@ -49,111 +61,4 @@
             "*.rs": "$(capture).exe,$(capture).pdb"
         }
     },
-    "tasks": {
-        "version": "2.0.0",
-        "tasks": [
-            {
-                "label": "Build Simulator",
-                "type": "shell",
-                "command": "cargo",
-                "args": ["build"],
-                "group": "build",
-                "options": {
-                    "cwd": "${workspaceFolder}/metro-simulator"
-                },
-                "presentation": {
-                    "echo": true,
-                    "reveal": "always",
-                    "focus": false,
-                    "panel": "shared"
-                },
-                "problemMatcher": ["$rustc"]
-            },
-            {
-                "label": "Run Simulator",
-                "type": "shell", 
-                "command": "cargo",
-                "args": ["run"],
-                "group": "build",
-                "options": {
-                    "cwd": "${workspaceFolder}/metro-simulator"
-                },
-                "presentation": {
-                    "echo": true,
-                    "reveal": "always", 
-                    "focus": false,
-                    "panel": "shared"
-                },
-                "problemMatcher": ["$rustc"]
-            },
-            {
-                "label": "Build ESP32",
-                "type": "shell",
-                "command": "rustup",
-                "args": ["run", "esp", "cargo", "build"],
-                "group": "build",
-                "options": {
-                    "cwd": "${workspaceFolder}/metro-esp32"
-                },
-                "presentation": {
-                    "echo": true,
-                    "reveal": "always",
-                    "focus": false,
-                    "panel": "shared"
-                },
-                "problemMatcher": ["$rustc"]
-            },
-            {
-                "label": "Flash ESP32",
-                "type": "shell",
-                "command": "rustup", 
-                "args": ["run", "esp", "cargo", "run", "--release"],
-                "group": "build",
-                "options": {
-                    "cwd": "${workspaceFolder}/metro-esp32"
-                },
-                "presentation": {
-                    "echo": true,
-                    "reveal": "always",
-                    "focus": false,
-                    "panel": "shared"
-                },
-                "problemMatcher": ["$rustc"]
-            },
-            {
-                "label": "Build Render Library",
-                "type": "shell",
-                "command": "cargo",
-                "args": ["build"],
-                "group": "build", 
-                "options": {
-                    "cwd": "${workspaceFolder}/metro-render"
-                },
-                "presentation": {
-                    "echo": true,
-                    "reveal": "always",
-                    "focus": false,
-                    "panel": "shared"
-                },
-                "problemMatcher": ["$rustc"]
-            }
-        ]
-    },
-    "launch": {
-        "version": "0.2.0",
-        "configurations": [
-            {
-                "name": "Debug Simulator",
-                "type": "cppvsdbg",
-                "request": "launch",
-                "program": "${workspaceFolder}/metro-simulator/target/debug/metro-simulator.exe",
-                "args": [],
-                "cwd": "${workspaceFolder}/metro-simulator",
-                "preLaunchTask": "Build Simulator",
-                "stopAtEntry": false,
-                "environment": [],
-                "console": "externalTerminal"
-            }
-        ]
-    }
 }

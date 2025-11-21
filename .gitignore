@@ -50,3 +50,9 @@ debug/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# Cloud stuff
+.terraform
+
+# Node stuff
+node_modules/
