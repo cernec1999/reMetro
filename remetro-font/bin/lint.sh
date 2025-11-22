@@ -6,7 +6,7 @@ set -e
 echo "🔍 Running Python linting and formatting..."
 echo
 
-# Navigate to the metro-font-builder directory (parent of bin)
+# Navigate to the remetro-font directory (parent of bin)
 cd "$(dirname "$0")/.."
 
 # Check if virtual environment exists and activate it
