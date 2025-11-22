@@ -1,6 +1,6 @@
 use std::num::ParseIntError;
 
-use metro_common::{ReMetroError, predictions::api::TrainPredictionsRequest};
+use remetro_common::{ReMetroError, predictions::api::TrainPredictionsRequest};
 use reqwest::{StatusCode, header::InvalidHeaderValue};
 use thiserror::Error;
 

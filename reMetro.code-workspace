@@ -2,7 +2,7 @@
     "folders": [
         {
             "name": "🦀 Rust Common Library", 
-            "path": "./metro-common"
+            "path": "./remetro-common"
         },
         {
             "name": "📟 Rust ESP32S3 Firmware",
@@ -10,23 +10,23 @@
         },
         {
             "name": "🖌️ Metro Render Library", 
-            "path": "./metro-render"
+            "path": "./remetro-render"
         },
         {
             "name": "🚄 Metro Fetch API",
-            "path": "./metro-fetch"
+            "path": "./remetro-fetch"
         },
         {
             "name": "☁️ Cloud",
-            "path": "./metro-cloud"
+            "path": "./remetro-cloud"
         },
         {
             "name": "🔧 Font Builder",
-            "path": "./metro-font-builder"
+            "path": "./remetro-font"
         },
         {
             "name": "🖥️ Desktop Simulator",
-            "path": "./metro-simulator"
+            "path": "./remetro-simulator"
         },
         {
             "name": "📁 Root",

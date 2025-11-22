@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use metro_common::predictions::api::TrainPredictionsRequest;
+use remetro_common::predictions::api::TrainPredictionsRequest;
 
 use crate::{errors::PublisherError, station_directory::DirectoryEvent};
 

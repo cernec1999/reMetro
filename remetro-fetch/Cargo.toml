@@ -1,16 +1,16 @@
 [package]
-name = "metro-fetch"
+name = "remetro-fetch"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "metro-fetch"
+name = "remetro-fetch"
 path = "./src/main.rs"
 
 [dependencies]
 dotenvy = "0.15.7"
 envy = "0.4.2"
-metro-common = { path = "../metro-common" }
+remetro-common = { path = "../remetro-common" }
 reqwest = "0.12.24"
 rumqttc = "0.25.0"
 serde = "1.0.228"

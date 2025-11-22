@@ -4,14 +4,13 @@
 
 use embedded_graphics::{pixelcolor::Rgb888, prelude::*};
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Window};
-use metro_render::scene::train_predictions::{TrainPrediction, TrainPredictions};
+use remetro_render::scene::train_predictions::{TrainPrediction, TrainPredictions};
 use u8g2_fonts::{Font, FontRenderer};
 
 pub struct MetroFont;
 
 impl Font for MetroFont {
-    const DATA: &'static [u8] =
-        include_bytes!("../../metro-font-builder/sample_output/pims_3.u8g2font");
+    const DATA: &'static [u8] = include_bytes!("../../remetro-font/sample_output/pims_3.u8g2font");
 }
 
 fn main() -> Result<(), std::convert::Infallible> {

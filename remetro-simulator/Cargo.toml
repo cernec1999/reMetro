@@ -1,11 +1,11 @@
 [package]
-name = "metro-simulator"
+name = "remetro-simulator"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 embedded-graphics = "0.8.1"
 embedded-graphics-simulator = "0.8.0"
-metro-render = { path = "../metro-render" }
+remetro-render = { path = "../remetro-render" }
 sdl2 = { version = "0.38.0", features = ["bundled"] }
 u8g2-fonts = "0.7.2"
