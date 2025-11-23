@@ -906,6 +906,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_path: Optional[str] = None
         self.corrected: Optional[Image.Image] = None
 
+        # Initialize all attributes that will be set in helper methods
+        self.graphics_view: Optional[ZoomableGraphicsView] = None
+        self.grid_editor: Optional[GridEditorWidget] = None
+        self.central_tabs: Optional[QtWidgets.QTabWidget] = None
+        self.letter_preview: Optional[LetterPreviewWidget] = None
+        self.letter_preview_index: int = 0
+        self.lbl_aspect: Optional[QtWidgets.QLabel] = None
+        self.chk_grid: Optional[QtWidgets.QCheckBox] = None
+        self.threshold_spin: Optional[QtWidgets.QSpinBox] = None
+        self.row_offset_spin: Optional[QtWidgets.QSpinBox] = None
+        self.col_offset_spin: Optional[QtWidgets.QSpinBox] = None
+        self.preview: Optional[PreviewWidget] = None
+        self.letter_input: Optional[QtWidgets.QLineEdit] = None
+        self.letters_list: Optional[QtWidgets.QListWidget] = None
+        self.scene: Optional[QuadScene] = None
+        self.font_data: Dict[str, List[List[int]]] = {}
+
+        self._setup_central_widgets()
+        self._setup_sidebar()
+        self._finalize_layout()
+
+    def _setup_central_widgets(self):
+        """Set up the main central widget area with tabs."""
         self.graphics_view = ZoomableGraphicsView()
         self.graphics_view.setRenderHint(QtGui.QPainter.Antialiasing, True)
 
@@ -925,9 +948,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.central_tabs.setTabEnabled(self.letter_preview_index, False)
         self.setCentralWidget(self.central_tabs)
 
+    def _setup_sidebar(self):
+        """Set up the sidebar with all controls."""
         side = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(side)
 
+        self._setup_image_controls(layout)
+        self._setup_grid_controls(layout)
+        self._setup_font_controls(layout)
+
+        dock = QtWidgets.QDockWidget("Tools", self)
+        dock.setWidget(side)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+
+    def _setup_image_controls(self, layout: QtWidgets.QVBoxLayout):
+        """Set up image loading and perspective correction controls."""
         btn_open = QtWidgets.QPushButton("Open Image…")
         btn_open.clicked.connect(self.open_image)
         layout.addWidget(btn_open)
@@ -946,6 +981,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chk_grid.stateChanged.connect(self.update_preview)
         layout.addWidget(self.chk_grid)
 
+    def _setup_grid_controls(self, layout: QtWidgets.QVBoxLayout):
+        """Set up grid editing and preview controls."""
         thresh_layout = QtWidgets.QHBoxLayout()
         thresh_layout.addWidget(QtWidgets.QLabel("Auto threshold"))
         self.threshold_spin = QtWidgets.QSpinBox()
@@ -954,27 +991,7 @@ class MainWindow(QtWidgets.QMainWindow):
         thresh_layout.addWidget(self.threshold_spin)
         layout.addLayout(thresh_layout)
 
-        offset_layout = QtWidgets.QHBoxLayout()
-        offset_layout.addWidget(QtWidgets.QLabel("Letter origin"))
-        offset_layout.addSpacing(6)
-        offset_layout.addWidget(QtWidgets.QLabel("Row"))
-        self.row_offset_spin = QtWidgets.QSpinBox()
-        self.row_offset_spin.setRange(
-            0, max(0, OUTPUT_ROWS - self.grid_editor.letter_rows)
-        )
-        self.row_offset_spin.setValue(0)
-        offset_layout.addWidget(self.row_offset_spin)
-        offset_layout.addSpacing(6)
-        offset_layout.addWidget(QtWidgets.QLabel("Col"))
-        self.col_offset_spin = QtWidgets.QSpinBox()
-        self.col_offset_spin.setRange(
-            0, max(0, OUTPUT_COLS - self.grid_editor.letter_cols)
-        )
-        self.col_offset_spin.setValue(0)
-        offset_layout.addWidget(self.col_offset_spin)
-        layout.addLayout(offset_layout)
-        self.row_offset_spin.valueChanged.connect(self.on_offsets_changed)
-        self.col_offset_spin.valueChanged.connect(self.on_offsets_changed)
+        self._setup_offset_controls(layout)
 
         btn_auto_fill = QtWidgets.QPushButton("Auto-fill from image")
         btn_auto_fill.clicked.connect(self.auto_fill_grid)
@@ -987,10 +1004,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview = PreviewWidget()
         layout.addWidget(self.preview, 1)
 
+    def _setup_offset_controls(self, layout: QtWidgets.QVBoxLayout):
+        """Set up the letter position offset controls."""
+        offset_layout = QtWidgets.QHBoxLayout()
+        offset_layout.addWidget(QtWidgets.QLabel("Letter origin"))
+        offset_layout.addSpacing(6)
+        offset_layout.addWidget(QtWidgets.QLabel("Row"))
+        self.row_offset_spin = QtWidgets.QSpinBox()
+        self.row_offset_spin.setRange(0, max(0, OUTPUT_ROWS - DEFAULT_LETTER_ROWS))
+        self.row_offset_spin.setValue(0)
+        offset_layout.addWidget(self.row_offset_spin)
+        offset_layout.addSpacing(6)
+        offset_layout.addWidget(QtWidgets.QLabel("Col"))
+        self.col_offset_spin = QtWidgets.QSpinBox()
+        self.col_offset_spin.setRange(0, max(0, OUTPUT_COLS - DEFAULT_LETTER_COLS))
+        self.col_offset_spin.setValue(0)
+        offset_layout.addWidget(self.col_offset_spin)
+        layout.addLayout(offset_layout)
+        self.row_offset_spin.valueChanged.connect(self.on_offsets_changed)
+        self.col_offset_spin.valueChanged.connect(self.on_offsets_changed)
+
+    def _setup_font_controls(self, layout: QtWidgets.QVBoxLayout):
+        """Set up font building and export controls."""
         font_header = QtWidgets.QLabel("Font builder")
         font_header.setStyleSheet("font-weight: bold;")
         layout.addWidget(font_header)
 
+        self._setup_letter_input(layout)
+        self._setup_letter_buttons(layout)
+
+        self.letters_list = QtWidgets.QListWidget()
+        self.letters_list.itemSelectionChanged.connect(self.load_selected_letter)
+        layout.addWidget(self.letters_list, 1)
+
+        self._setup_font_actions(layout)
+        self._setup_export_buttons(layout)
+
+    def _setup_letter_input(self, layout: QtWidgets.QVBoxLayout):
+        """Set up letter input controls."""
         letter_row = QtWidgets.QHBoxLayout()
         self.letter_input = QtWidgets.QLineEdit()
         self.letter_input.setPlaceholderText("Letter (e.g. A)")
@@ -1001,6 +1052,8 @@ class MainWindow(QtWidgets.QMainWindow):
         letter_row.addWidget(btn_save_letter)
         layout.addLayout(letter_row)
 
+    def _setup_letter_buttons(self, layout: QtWidgets.QVBoxLayout):
+        """Set up letter manipulation buttons."""
         btns_row = QtWidgets.QHBoxLayout()
         btn_clear = QtWidgets.QPushButton("Clear grid")
         btn_clear.clicked.connect(self.clear_grid_cells)
@@ -1010,10 +1063,8 @@ class MainWindow(QtWidgets.QMainWindow):
         btns_row.addWidget(btn_remove)
         layout.addLayout(btns_row)
 
-        self.letters_list = QtWidgets.QListWidget()
-        self.letters_list.itemSelectionChanged.connect(self.load_selected_letter)
-        layout.addWidget(self.letters_list, 1)
-
+    def _setup_font_actions(self, layout: QtWidgets.QVBoxLayout):
+        """Set up font load/save buttons."""
         font_actions = QtWidgets.QHBoxLayout()
         btn_load_font = QtWidgets.QPushButton("Load font…")
         btn_load_font.clicked.connect(self.load_font_file)
@@ -1023,22 +1074,19 @@ class MainWindow(QtWidgets.QMainWindow):
         font_actions.addWidget(btn_save_font)
         layout.addLayout(font_actions)
 
-        # PCF export button
+    def _setup_export_buttons(self, layout: QtWidgets.QVBoxLayout):
+        """Set up font export buttons."""
         btn_export_pcf = QtWidgets.QPushButton("Export PCF font…")
         btn_export_pcf.clicked.connect(self.export_pcf_font)
         layout.addWidget(btn_export_pcf)
 
-        # MTR export button
         btn_export_mtr = QtWidgets.QPushButton("Export U8G2 font…")
         btn_export_mtr.clicked.connect(self.export_u8g2_font_v1)
         layout.addWidget(btn_export_mtr)
 
-        dock = QtWidgets.QDockWidget("Tools", self)
-        dock.setWidget(side)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-
-        self.scene: Optional[QuadScene] = None
-        self.font_data: Dict[str, List[List[int]]] = {}
+    def _finalize_layout(self):
+        """Finalize the layout and initialize state."""
+        self.scene = None
         self.grid_editor.set_offsets(0, 0)
         self.preview.set_letter_outline(
             0, 0, self.grid_editor.letter_rows, self.grid_editor.letter_cols
@@ -1393,7 +1441,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Font contains {len(builder.glyphs)} characters.",
             )
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             QtWidgets.QMessageBox.critical(
                 self, "PCF Export Error", f"Failed to export PCF font:\n{str(e)}"
             )
