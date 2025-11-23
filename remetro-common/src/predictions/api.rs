@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{WMATAPlatformCode, WMATAStationCode};
+use crate::{WMATAStationCode, WMATATrackCode};
 
 /// Subscription key for monitoring specific station/platform combinations
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -8,7 +8,7 @@ pub enum TrainPredictionsRequest {
     /// Monitor all platforms for a specific station
     Station(WMATAStationCode),
     /// Monitor a specific platform at a specific station
-    StationPlatform(WMATAStationCode, WMATAPlatformCode),
+    StationPlatform(WMATAStationCode, WMATATrackCode),
 }
 
 impl std::fmt::Display for TrainPredictionsRequest {

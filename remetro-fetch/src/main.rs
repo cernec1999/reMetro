@@ -1,11 +1,13 @@
 use crate::{
-    client::WMATAClient, publisher::ReMetroPublisher, station_directory::SharedStationDirectory,
+    client::WMATAClient, publisher::ReMetroPublisher, router::create_router,
+    station_directory::StationDirectory,
 };
 
 pub mod client;
 pub mod config;
 pub mod errors;
 pub mod publisher;
+pub mod router;
 pub mod station_directory;
 pub mod types;
 pub mod utils;
@@ -25,16 +27,19 @@ async fn main() {
     };
 
     // Create the shared station directory
-    let station_directory = SharedStationDirectory::default();
+    let station_directory = StationDirectory::new_shared();
 
     // Create a worker thread that fetches and processes data periodically
+    let station_directory_for_fetch = station_directory.clone();
+    let station_directory_for_server = station_directory.clone();
+
     let fetch_handle = tokio::spawn(async move {
         // Initialize WMATA client
         let client = match WMATAClient::new(
-            config.api_base_url.clone(),
-            &config.api_key.clone(),
+            config.wmata_api_base_url.clone(),
+            &config.wmata_api_key,
             "reMetro/1.0 (+https://github.com/cernec1999/reMetro)",
-            config.api_timeout,
+            config.wmata_api_timeout,
         ) {
             Ok(c) => c,
             Err(e) => {
@@ -43,6 +48,20 @@ async fn main() {
             }
         };
 
+        // Populate station directory initially
+        let stations = match client.get_stations_raw().await {
+            Ok(sts) => sts,
+            Err(e) => {
+                eprintln!("Error fetching WMATA stations: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = station_directory_for_fetch.ingest_stations(&stations) {
+            eprintln!("Error populating station directory: {}", e);
+            return;
+        }
+
         // Initialize MQTT publisher
         let mqtt_publisher = ReMetroPublisher::new(
             &config.mqtt_broker,
@@ -50,66 +69,56 @@ async fn main() {
             &config.mqtt_client_id,
         );
 
-        // Periodically fetch and process data
+        // Periodically fetch and process data until Ctrl-C
         loop {
-            let predictions = match client.get_predictions_raw().await {
-                Ok(preds) => preds,
-                Err(e) => {
-                    eprintln!("Error fetching train predictions: {}", e);
-                    tokio::time::sleep(config.fetch_interval).await;
-                    continue;
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("Ctrl-C received, stopping fetch loop.");
+                    break;
                 }
-            };
 
-            let events = station_directory.ingest(&predictions);
+                _ = async {
+                    let predictions = match client.get_predictions_raw().await {
+                        Ok(preds) => preds,
+                        Err(e) => {
+                            eprintln!("Error fetching train predictions: {}", e);
+                            tokio::time::sleep(config.fetch_interval).await;
+                            return;
+                        }
+                    };
 
-            if let Err(e) = events {
-                eprintln!("Error normalizing train predictions: {}", e);
-            } else {
-                let events = events.unwrap();
-
-                for event in events {
-                    if let Err(e) = mqtt_publisher.handle_update(event).await {
-                        eprintln!("Error publishing update: {}", e);
+                    match station_directory_for_fetch.ingest_predictions(&predictions) {
+                        Ok(events) => {
+                            for event in events {
+                                if let Err(e) = mqtt_publisher.handle_update(event).await {
+                                    eprintln!("Error publishing update: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error normalizing train predictions: {}", e);
+                        }
                     }
-                }
-            }
 
-            tokio::time::sleep(config.fetch_interval).await;
+                    tokio::time::sleep(config.fetch_interval).await;
+                } => {}
+            }
         }
     });
 
-    // Create a worker thread that listens to updates from station K04.
-    // let listen_handle = tokio::spawn(async move {
-    //     let key = TrainPredictionsRequest::Station("K04".to_string());
-    //     if let Ok(mut receiver) = station_directory_listener.subscribe(key) {
-    //         // Listen for updates
-    //         while receiver.changed().await.is_ok() {
-    //             let update = receiver.borrow().clone();
-    //             match update {
-    //                 TrainUpdate::Full { trains } => {
-    //                     // print trains
-    //                     println!("Station K04: Full refresh needed, {} trains", trains.len());
-    //                     for train in trains {
-    //                         println!("\t{}", train);
-    //                     }
-    //                 }
-    //                 TrainUpdate::Incremental { changes } => {
-    //                     println!("Station K04: {} trains had minute changes", changes.len());
-    //                     for change in changes {
-    //                         println!(
-    //                             "\tTrain {}: {} → {}",
-    //                             change.train_index, change.old_minutes, change.new_minutes
-    //                         );
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     } else {
-    //         eprintln!("Failed to subscribe to station K04");
-    //     }
-    // });
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+            .await
+            .expect("failed to bind server port");
 
-    // Wait for both tasks to complete (they won't, but this keeps the main thread alive)
-    let _ = tokio::join!(fetch_handle);
+        axum::serve(listener, create_router(station_directory_for_server))
+            .with_graceful_shutdown(async {
+                let _ = tokio::signal::ctrl_c().await;
+                eprintln!("Ctrl-C received, shutting down server.");
+            })
+            .await
+            .expect("server crashed");
+    });
+
+    let _ = tokio::join!(fetch_handle, server_handle);
 }

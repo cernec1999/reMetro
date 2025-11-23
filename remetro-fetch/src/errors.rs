@@ -37,6 +37,9 @@ pub enum StationDirectoryError {
     /// If a RwLock is poisoned
     #[error("RwLock poisoned: {0}")]
     RwLockPoisonError(String),
+    /// If we encountered an error while deserializing station aliases
+    #[error("Deserialization error: {0}")]
+    Deserialization(#[from] serde_json::Error),
 }
 
 #[derive(Debug, Error)]

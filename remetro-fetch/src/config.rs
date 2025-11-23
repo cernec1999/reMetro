@@ -6,13 +6,13 @@ use url::Url;
 pub struct TrainFetchConfig {
     /// Base URL for the WMATA API
     #[serde(default = "default_base_url")]
-    pub api_base_url: Url,
+    pub wmata_api_base_url: Url,
     /// API key for WMATA
     #[serde(default)]
-    pub api_key: String,
+    pub wmata_api_key: String,
     /// Request timeout duration
     #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
-    pub api_timeout: Duration,
+    pub wmata_api_timeout: Duration,
     /// Interval between data fetches in seconds
     #[serde(
         default = "default_fetch_interval",
@@ -28,6 +28,9 @@ pub struct TrainFetchConfig {
     /// MQTT client ID
     #[serde(default = "default_mqtt_client_id")]
     pub mqtt_client_id: String,
+    /// Web server bind address
+    #[serde(default = "default_web_bind_address")]
+    pub web_bind_address: String,
 }
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -73,6 +76,10 @@ where
             raw_timeout
         )))
     }
+}
+
+fn default_web_bind_address() -> String {
+    "0.0.0.0:3000".to_string()
 }
 
 pub fn read_env_vars() -> Result<TrainFetchConfig, envy::Error> {

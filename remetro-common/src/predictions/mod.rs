@@ -4,7 +4,7 @@ use core::{
 };
 
 use crate::{
-    WMATAPlatformCode,
+    WMATATrackCode,
     predictions::{train_cars::TrainCars, train_line::TrainLine, train_mins::TrainMins},
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub mod train_update;
 /// Represents the prediction from one train
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TrainPrediction {
-    pub platform: WMATAPlatformCode,
+    pub track: WMATATrackCode,
     pub line: TrainLine,
     pub cars: TrainCars,
     pub destination: String,
@@ -28,10 +28,10 @@ pub struct TrainPrediction {
 /// Train should sort by minutes, then by platform, then by line, then by cars, then by destination
 impl TrainPrediction {
     #[inline]
-    pub fn sort_key(&self) -> (TrainMins, WMATAPlatformCode, TrainLine, TrainCars, String) {
+    pub fn sort_key(&self) -> (TrainMins, WMATATrackCode, TrainLine, TrainCars, String) {
         (
             self.min,
-            self.platform,
+            self.track,
             self.line,
             self.cars,
             self.destination.clone(),

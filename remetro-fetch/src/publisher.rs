@@ -28,11 +28,11 @@ impl ReMetroPublisher {
     pub async fn handle_update(&self, update: DirectoryEvent) -> Result<(), PublisherError> {
         let topic = match update.key {
             TrainPredictionsRequest::Station(station_code) => {
-                format!("reMetro/v1/station/{}", station_code)
+                format!("reMetro/v1/predictions/station/{}", station_code)
             }
             TrainPredictionsRequest::StationPlatform(station_code, platform_code) => {
                 format!(
-                    "reMetro/v1/station/{}/platform/{}",
+                    "reMetro/v1/predictions/station/{}/platform/{}",
                     station_code, platform_code
                 )
             }

@@ -1,11 +1,11 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     str::FromStr,
     sync::{Arc, RwLock},
 };
 
 use remetro_common::{
-    WMATAPlatformCode, WMATAStationCode,
+    Address, Location, Station, WMATAStationCode, WMATATrackCode,
     predictions::{
         TrainPrediction,
         api::TrainPredictionsRequest,
@@ -18,14 +18,17 @@ use remetro_common::{
 
 use crate::{
     errors::StationDirectoryError,
-    types::{WMATATrainPrediction, WMATATrainPredictionResponse},
+    types::{
+        WMATAAliases, WMATAStationInfo, WMATAStationInfoResponse, WMATATrainPrediction,
+        WMATATrainPredictionResponse,
+    },
     utils::SortedVec,
 };
 
-/// Normalize a single raw prediction into the `Train` type.
-pub fn to_train(
+/// Normalize a single raw prediction into the `TrainPrediction` type.
+fn to_train(
     p: &WMATATrainPrediction,
-    platform: WMATAPlatformCode,
+    track: WMATATrackCode,
 ) -> Result<TrainPrediction, StationDirectoryError> {
     let cars = match &p.car {
         Some(s) => TrainCars::from_str(s)?,
@@ -33,7 +36,7 @@ pub fn to_train(
     };
 
     Ok(TrainPrediction {
-        platform,
+        track,
         line: TrainLine::from_str(&p.line)?,
         cars,
         destination: p.destination.clone(),
@@ -41,40 +44,89 @@ pub fn to_train(
     })
 }
 
-/// Represents a directory event, which will be the return type for ingestion.
+/// If line_code is empty, do nothing. Otherwise, insert the line into the set.
+fn insert_line_if_present(
+    lines: &mut HashSet<TrainLine>,
+    line_code: &Option<String>,
+) -> Result<(), StationDirectoryError> {
+    if let Some(code) = line_code
+        && !code.is_empty()
+    {
+        let line = TrainLine::from_str(code)?;
+        lines.insert(line);
+    }
+    Ok(())
+}
+
+/// Normalize a single station from WMATA response into `Station`.
+fn to_station(station: &WMATAStationInfo) -> Result<Station, StationDirectoryError> {
+    let mut lines = HashSet::new();
+    insert_line_if_present(&mut lines, &station.line_code_1)?;
+    insert_line_if_present(&mut lines, &station.line_code_2)?;
+    insert_line_if_present(&mut lines, &station.line_code_3)?;
+    insert_line_if_present(&mut lines, &station.line_code_4)?;
+
+    let mut linked_stations = HashSet::new();
+    if let Some(s) = &station.station_together_1
+        && !s.is_empty()
+    {
+        linked_stations.insert(s.clone());
+    }
+    if let Some(s) = &station.station_together_2
+        && !s.is_empty()
+    {
+        linked_stations.insert(s.clone());
+    }
+
+    Ok(Station {
+        code: station.code.clone(),
+        name: station.name.clone(),
+        aliases: HashSet::new(),
+        linked_stations,
+        lines,
+        location: Location {
+            latitude: station.lat,
+            longitude: station.lon,
+            address: Address {
+                street: station.address.street.clone(),
+                city: station.address.city.clone(),
+                state: station.address.state.clone(),
+                zip: station.address.zip.clone(),
+            },
+        },
+    })
+}
+
+/// Represents a directory event, which is emitted when predictions change.
 #[derive(Debug, Clone)]
 pub struct DirectoryEvent {
     pub key: TrainPredictionsRequest,
     pub update: FullTrainUpdate,
 }
 
-/// A thread-safe directory of WMATA station information with granular change notifications.
+/// A thread-safe directory of WMATA station information plus fast prediction lookups.
 ///
-/// This structure provides thread-safe access with single-writer, multiple-reader semantics:
-/// - Only one thread can modify the directory at a time (via `ingest`)
-/// - Multiple threads can read from the directory concurrently (via `station_name`, `platforms`, `as_records`)
-/// - All operations are protected by `RwLock` for safe concurrent access
-/// - Subscribers can be notified of changes for specific stations/platforms via individual `watch` channels
-///
-/// For sharing across threads, use `StationDirectory::new_shared()` or wrap in `Arc`.
+/// Single-writer, multi-reader semantics via RwLocks.
+/// Use `StationDirectory::new_shared()` for cross-thread sharing.
 #[derive(Debug)]
 pub struct StationDirectory {
-    names_by_code: RwLock<HashMap<WMATAStationCode, String>>,
-    platforms_by_code: RwLock<HashMap<WMATAStationCode, BTreeSet<WMATAPlatformCode>>>,
-    // Efficient O(1) lookup structure for normalized train data
+    station_by_code: RwLock<HashMap<WMATAStationCode, Station>>,
+    tracks_by_code: RwLock<HashMap<WMATAStationCode, BTreeSet<WMATATrackCode>>>,
     trains_by_platform: RwLock<HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>>,
+    /// Global alias set for warnings + dedupe.
+    aliases: RwLock<HashSet<String>>,
 }
 
 /// Thread-safe, shared reference to a StationDirectory.
-/// This is the recommended way to share a StationDirectory across threads.
 pub type SharedStationDirectory = Arc<StationDirectory>;
 
 impl Default for StationDirectory {
     fn default() -> Self {
         Self {
-            names_by_code: RwLock::new(HashMap::new()),
-            platforms_by_code: RwLock::new(HashMap::new()),
+            station_by_code: RwLock::new(HashMap::new()),
+            tracks_by_code: RwLock::new(HashMap::new()),
             trains_by_platform: RwLock::new(HashMap::new()),
+            aliases: RwLock::new(HashSet::new()),
         }
     }
 }
@@ -85,117 +137,214 @@ impl StationDirectory {
         Arc::new(Self::default())
     }
 
-    pub fn ingest(
+    fn load_static_aliases() -> Result<WMATAAliases, StationDirectoryError> {
+        Ok(serde_json::from_str(include_str!("../res/aliases.json"))?)
+    }
+
+    /// Ingest raw WMATA stations and update the directory.
+    pub fn ingest_stations(
         &self,
-        resp: &WMATATrainPredictionResponse,
-    ) -> Result<Vec<DirectoryEvent>, StationDirectoryError> {
-        // Update basic station/platform directory and build efficient lookup structures
-        {
-            let mut names_map = self
-                .names_by_code
-                .write()
-                .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
-            let mut platforms_map = self
-                .platforms_by_code
-                .write()
-                .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
-            let mut trains_by_platform = self
-                .trains_by_platform
-                .write()
-                .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+        resp: &WMATAStationInfoResponse,
+    ) -> Result<(), StationDirectoryError> {
+        let station_aliases = Self::load_static_aliases()?;
 
-            // Clear previous train data
-            trains_by_platform.clear();
+        let mut names_map = self
+            .station_by_code
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
-            // Group trains by station for station-level subscriptions
-            let mut station_trains: HashMap<WMATAStationCode, Vec<TrainPrediction>> =
-                HashMap::new();
+        let mut aliases_global = self
+            .aliases
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
-            for p in &resp.trains {
-                names_map
-                    .entry(p.location_code.clone())
-                    .or_insert_with(|| p.location_name.clone());
+        for station in &resp.stations {
+            let mut normalized = to_station(station)?;
 
-                let platform = WMATAPlatformCode::from_str(&p.group)?;
-                platforms_map
-                    .entry(p.location_code.clone())
-                    .or_default()
-                    .insert(platform);
+            // Always include the official name as an alias (and global alias)
+            normalized.aliases.insert(normalized.name.clone());
+            aliases_global.insert(normalized.name.clone());
 
-                // Normalize the train
-                let train = to_train(p, platform)?;
-
-                // Add to station-level collection (for aggregation)
-                station_trains
-                    .entry(p.location_code.clone())
-                    .or_default()
-                    .insert_sorted(train.clone());
-
-                // Add to platform-level lookup
-                let platform_key =
-                    TrainPredictionsRequest::StationPlatform(p.location_code.clone(), platform);
-                trains_by_platform
-                    .entry(platform_key)
-                    .or_default()
-                    .insert_sorted(train);
+            // Add any aliases from the static mapping
+            if let Some(aliases) = station_aliases.station_aliases.get(&station.code) {
+                for alias in aliases {
+                    if !alias.is_empty() {
+                        normalized.aliases.insert(alias.clone());
+                        aliases_global.insert(alias.clone());
+                    }
+                }
             }
 
-            // Now populate station-level subscription keys with aggregated data
-            for (station_code, trains) in station_trains {
-                let station_key = TrainPredictionsRequest::Station(station_code);
-                trains_by_platform.insert(station_key, trains);
+            names_map.insert(normalized.code.clone(), normalized);
+        }
+
+        // Add the no-passenger aliases to the global set
+        for alias in &station_aliases.no_passenger_aliases {
+            if !alias.is_empty() {
+                aliases_global.insert(alias.clone());
             }
         }
 
-        // Check for prediction changes and notify subscribers with detailed change information
-        self.check_and_notify_prediction_changes(resp)
+        Ok(())
     }
 
-    /// Check for prediction changes and notify subscribers with detailed change information
-    fn check_and_notify_prediction_changes(
+    /// Ingest raw WMATA train prediction response and update directory.
+    ///
+    /// Returns a list of DirectoryEvents for keys whose prediction lists changed.
+    pub fn ingest_predictions(
         &self,
         resp: &WMATATrainPredictionResponse,
     ) -> Result<Vec<DirectoryEvent>, StationDirectoryError> {
+        // Take all needed write locks up front in a consistent order to avoid deadlocks.
+        let mut aliases_global = self
+            .aliases
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+
+        let mut names_map = self
+            .station_by_code
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+
+        let mut platforms_map = self
+            .tracks_by_code
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+
+        let mut trains_by_platform = self
+            .trains_by_platform
+            .write()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+
+        // Snapshot old state for diffing.
+        let old_trains_by_platform = trains_by_platform.clone();
+
+        trains_by_platform.clear();
+        let mut station_trains: HashMap<WMATAStationCode, Vec<TrainPrediction>> = HashMap::new();
+
+        for p in &resp.trains {
+            // Enrich destination aliases if we have a code.
+            if let Some(dest_code) = &p.destination_code {
+                if let Some(station) = names_map.get_mut(dest_code) {
+                    if let Some(dest_name) = &p.destination_name
+                        && !dest_name.is_empty()
+                    {
+                        station.aliases.insert(dest_name.clone());
+                        aliases_global.insert(dest_name.clone());
+                    }
+                } else {
+                    eprintln!(
+                        "Warning: destination_code '{}' not found in station directory",
+                        dest_code
+                    );
+                }
+            } else if let Some(dest_name) = &p.destination_name
+                && !dest_name.is_empty()
+                && !aliases_global.contains(dest_name)
+            {
+                eprintln!(
+                    "Warning: destination_name '{}' has no associated destination_code",
+                    dest_name
+                );
+            }
+
+            let track = WMATATrackCode::from_str(&p.group)?;
+            platforms_map
+                .entry(p.location_code.clone())
+                .or_default()
+                .insert(track);
+
+            let train = to_train(p, track)?;
+
+            // Station-level collection
+            station_trains
+                .entry(p.location_code.clone())
+                .or_default()
+                .insert_sorted(train.clone());
+
+            // Platform-level lookup
+            let platform_key =
+                TrainPredictionsRequest::StationPlatform(p.location_code.clone(), track);
+            trains_by_platform
+                .entry(platform_key)
+                .or_default()
+                .insert_sorted(train);
+        }
+
+        // Populate station-level aggregated keys
+        for (station_code, trains) in station_trains {
+            let station_key = TrainPredictionsRequest::Station(station_code);
+            trains_by_platform.insert(station_key, trains);
+        }
+
+        // Drop write locks before diff/notify (read-only from here on).
+        drop(trains_by_platform);
+        drop(platforms_map);
+        drop(names_map);
+        drop(aliases_global);
+
+        self.check_and_notify_prediction_changes(resp, old_trains_by_platform)
+    }
+
+    /// Emit events only for keys whose train lists changed.
+    fn check_and_notify_prediction_changes(
+        &self,
+        resp: &WMATATrainPredictionResponse,
+        old_trains_by_platform: HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>,
+    ) -> Result<Vec<DirectoryEvent>, StationDirectoryError> {
         let mut events: Vec<DirectoryEvent> = Vec::new();
+
         let current_trains = self
             .trains_by_platform
             .read()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
-        // Collect unique stations and station-platform combinations from the response
-        let mut affected_keys = std::collections::HashSet::new();
-
+        let mut affected_keys = HashSet::new();
         for prediction in &resp.trains {
             affected_keys.insert(TrainPredictionsRequest::Station(
                 prediction.location_code.clone(),
             ));
-            if let Ok(platform) = WMATAPlatformCode::from_str(&prediction.group) {
+            if let Ok(track) = WMATATrackCode::from_str(&prediction.group) {
                 affected_keys.insert(TrainPredictionsRequest::StationPlatform(
                     prediction.location_code.clone(),
-                    platform,
+                    track,
                 ));
             }
         }
 
-        // Check each affected subscription key for changes
         for key in affected_keys {
             if let Some(trains) = current_trains.get(&key) {
-                let update = FullTrainUpdate {
-                    // Get the first 3 trains for the update
-                    trains: trains.iter().take(MAX_TRAINS_PER_UPDATE).cloned().collect(),
-                };
-                events.push(DirectoryEvent { key, update });
+                let changed = old_trains_by_platform
+                    .get(&key)
+                    .map(|old| old != trains)
+                    .unwrap_or(true);
+
+                if changed {
+                    let update = FullTrainUpdate {
+                        trains: trains.iter().take(MAX_TRAINS_PER_UPDATE).cloned().collect(),
+                    };
+                    events.push(DirectoryEvent { key, update });
+                }
             }
         }
 
         Ok(events)
     }
 
-    pub fn station_name(&self, code: &str) -> Result<String, StationDirectoryError> {
-        self.names_by_code
+    /// Get all stations as records.
+    pub fn all_stations(&self) -> Vec<Station> {
+        self.station_by_code
+            .read()
+            .map(|map| map.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get a station from its station code.
+    pub fn station(&self, code: WMATAStationCode) -> Result<Station, StationDirectoryError> {
+        self.station_by_code
             .read()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
-            .get(code)
+            .get(&code)
             .cloned()
             .ok_or_else(|| {
                 StationDirectoryError::InvalidStationOrPlatform(TrainPredictionsRequest::Station(
@@ -204,11 +353,12 @@ impl StationDirectory {
             })
     }
 
-    pub fn platforms(
+    /// Get a list of platform codes associated with a station code.
+    pub fn station_platforms(
         &self,
         code: WMATAStationCode,
-    ) -> Result<BTreeSet<WMATAPlatformCode>, StationDirectoryError> {
-        self.platforms_by_code
+    ) -> Result<BTreeSet<WMATATrackCode>, StationDirectoryError> {
+        self.tracks_by_code
             .read()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
             .get(&code)
@@ -218,28 +368,17 @@ impl StationDirectory {
             ))
     }
 
-    /// Flat list of station records to persist/export.
-    pub fn as_records(
+    /// Get predictions for a given station or station+platform.
+    pub fn predictions(
         &self,
-    ) -> Result<Vec<(WMATAStationCode, String, Vec<u8>)>, StationDirectoryError> {
-        let names_map = self
-            .names_by_code
+        key: &TrainPredictionsRequest,
+    ) -> Result<Vec<TrainPrediction>, StationDirectoryError> {
+        self.trains_by_platform
             .read()
-            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
-        let platforms_map = self
-            .platforms_by_code
-            .read()
-            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
-
-        let mut out = Vec::new();
-        for (code, name) in names_map.iter() {
-            let plats = platforms_map
-                .get(code)
-                .map(|set| set.iter().map(|p| p.0).collect())
-                .unwrap_or_default();
-            out.push((code.clone(), name.clone(), plats));
-        }
-        Ok(out)
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
+            .get(key)
+            .cloned()
+            .ok_or_else(|| StationDirectoryError::InvalidStationOrPlatform(key.clone()))
     }
 }
 
@@ -247,7 +386,7 @@ impl StationDirectory {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PimsKey {
     pub station_code: WMATAStationCode,
-    pub platform: WMATAPlatformCode,
+    pub track: WMATATrackCode,
 }
 
 /// Build a PIMS key if data is consistent.
@@ -256,6 +395,6 @@ pub fn pims_key_from_prediction(
 ) -> Result<PimsKey, StationDirectoryError> {
     Ok(PimsKey {
         station_code: p.location_code.clone(),
-        platform: WMATAPlatformCode::from_str(&p.group)?,
+        track: WMATATrackCode::from_str(&p.group)?,
     })
 }

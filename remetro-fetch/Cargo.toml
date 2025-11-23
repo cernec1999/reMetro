@@ -8,6 +8,7 @@ name = "remetro-fetch"
 path = "./src/main.rs"
 
 [dependencies]
+axum = "0.8.7"
 dotenvy = "0.15.7"
 envy = "0.4.2"
 remetro-common = { path = "../remetro-common" }

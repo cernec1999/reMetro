@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use reqwest::{Client, StatusCode, Url, header::HeaderMap};
 
-use crate::{errors::WMATAClientError, types::WMATATrainPredictionResponse};
+use crate::{
+    errors::WMATAClientError,
+    types::{WMATAStationInfoResponse, WMATATrainPredictionResponse},
+};
 
 #[derive(Debug)]
 pub struct WMATAClient {
@@ -58,7 +61,7 @@ impl WMATAClient {
     /// Gets all of the WMATA train predictions.
     ///
     /// # Returns
-    /// - An array of train predictions
+    /// - The raw train predictions response.
     ///
     /// # Errors
     /// - `WMATAClientError::Client`: If an error occurs while sending the request or
@@ -66,7 +69,9 @@ impl WMATAClient {
     /// - `WMATAClientError::UrlJoin`: If an error occurs while joining the URL.
     /// - `WMATAClientError::StatusCode`: If the status code is not OK.
     /// - `WMATAClientError::Deserialize`: If deserializing the result fails.
-    pub async fn get_predictions_raw(&self) -> Result<WMATATrainPredictionResponse, WMATAClientError> {
+    pub async fn get_predictions_raw(
+        &self,
+    ) -> Result<WMATATrainPredictionResponse, WMATAClientError> {
         let url = self.url_join("/StationPrediction.svc/json/GetPrediction/All")?;
         let resp = self.client.get(url).send().await?;
         let status = resp.status();
@@ -77,6 +82,28 @@ impl WMATAClient {
         }
 
         let typed: WMATATrainPredictionResponse = serde_json::from_str(&body)?;
+        Ok(typed)
+    }
+
+    /// Gets all of the WMATA stations.
+    ///
+    /// # Returns
+    /// - The raw stations response.
+    ///
+    /// # Errors
+    /// - `WMATAClientError::Client`: If an error occurs while sending the request or getting the response text.
+    /// - `WMATAClientError::UrlJoin`: If an error occurs while joining the URL.
+    /// - `WMATAClientError::StatusCode`: If the status code is not OK
+    /// - `WMATAClientError::Deserialize`: If deserializing the result fails.
+    pub async fn get_stations_raw(&self) -> Result<WMATAStationInfoResponse, WMATAClientError> {
+        let url = self.url_join("/Rail.svc/json/jStations")?;
+        let resp = self.client.get(url).send().await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        if status != StatusCode::OK {
+            return Err(WMATAClientError::StatusCode(status, body));
+        }
+        let typed: WMATAStationInfoResponse = serde_json::from_str(&body)?;
         Ok(typed)
     }
 }
