@@ -1,0 +1,19 @@
+{
+    "station_aliases": {
+        "A15": [
+            "Shady Grv"
+        ],
+        "D13": [
+            "NewCrlton",
+            "N Carrollton"
+        ],
+        "E01": [
+            "MtVern Sq",
+            "Mt Vern Sq"
+        ],
+        "F11": [
+            "Branch Av"
+        ]
+    },
+    "no_passenger_aliases": ["No Passenger", "Train"]
+}

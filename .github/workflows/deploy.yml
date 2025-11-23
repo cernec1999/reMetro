@@ -1,0 +1,86 @@
+name: Deploy remetro-fetch to ECS
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "remetro-fetch/**"
+      - "remetro-common/**"
+      - "remetro-cloud/**"
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: deploy-remetro-fetch-main
+  cancel-in-progress: true
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build remetro-fetch
+        run: cargo build --release --manifest-path remetro-fetch/Cargo.toml
+
+      - name: Test remetro-fetch
+        run: cargo test --manifest-path remetro-fetch/Cargo.toml
+
+  deploy:
+    needs: build_test
+    runs-on: ubuntu-latest
+    env:
+      # TODO: Do we need this if prod.tfvars has region hardcoded?
+      AWS_REGION: us-east-1
+      ECR_REPO: remetro-fetch
+      TF_DIR: remetro-cloud
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- AWS auth via OIDC (no AWS keys stored in GitHub) ----
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---- Login to ECR ----
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---- Build & push image (root context; Dockerfile in remetro-fetch/) ----
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: remetro-fetch/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+
+      # ---- Terraform apply ----
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      - name: Terraform Apply (prod)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform apply \
+            -var-file=prod.tfvars \
+            -var="image_tag=${{ github.sha }}" \
+            -auto-approve

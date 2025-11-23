@@ -56,3 +56,11 @@ debug/
 
 # Node stuff
 node_modules/
+
+# Env files
+.env
+*.env
+
+# Terraform
+*.tfstate
+*.tfstate.backup

@@ -1,0 +1,8 @@
+[package]
+name = "remetro-render"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+embedded-graphics = "0.8.1"
+u8g2-fonts = "0.7.2"

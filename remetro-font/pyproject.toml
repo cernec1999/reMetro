@@ -1,0 +1,151 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remetro-font"
+version = "1.0.0"
+description = "WMATA Metro Font Builder - Build fonts from metro display photos"
+authors = [
+    {name = "reMetro"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.21.0,<2.4.0",
+    "pillow>=10.0.0,<13.0.0",
+    "PyQt5>=5.15.2,<5.16.0",
+    "PyQt5-Qt5>=5.15.2,<5.16.0",
+    "PyQt5_sip>=12.11.0,<13.0.0",
+    "pcffont>=0.0.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Core linting and formatting tools
+    "black>=23.0.0",           # Code formatting
+    "isort>=5.12.0",           # Import sorting  
+    "mypy>=1.0.0",            # Static type checking
+    "pylint>=2.17.0",         # Comprehensive linting
+    
+    # Additional code quality (essential flake8 plugins)
+    "flake8>=6.0.0",          # Style guide enforcement
+    "flake8-bugbear>=23.0.0", # Bug-finding (high value, low overlap)
+    
+    # Type stubs for better IDE support
+    "PyQt5-stubs>=5.15.6.0",
+    "types-Pillow>=10.2.0.20240822",
+]
+
+# Optional dependencies for occasional use
+automation = [
+    "autotyping>=24.9.0",   # Static analysis type annotation (only when adding new code)
+    "monkeytype>=23.3.0",   # Runtime type annotation (only for new modules)
+]
+
+# Alternative modern tooling approach
+minimal = [
+    "black>=23.0.0",
+    "mypy>=1.0.0", 
+    "ruff>=0.1.0",           # Fast linter (replaces flake8, isort, many plugins)
+    "PyQt5-stubs>=5.15.6.0",
+    "types-Pillow>=10.2.0.20240822",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+# Very lenient for GUI applications with C extensions
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_no_return = false
+warn_unreachable = false
+strict_equality = false
+# Ignore missing imports and attributes for GUI frameworks
+ignore_missing_imports = true
+ignore_errors = false
+# Enable PyQt5 stub resolution
+namespace_packages = true
+
+[[tool.mypy.overrides]]
+module = [
+    "PyQt5.*",
+    "PIL.*",
+]
+ignore_missing_imports = true
+
+[tool.pylint.messages_control]
+disable = [
+    # PyQt5 C extensions - unavoidable
+    "E1101",  # no-member (PyQt5 C extensions)
+    "I1101",  # c-extension-no-member (PyQt5 C extensions)
+    
+    # Module/file naming - can't change without breaking compatibility
+    "C0103",  # invalid-name (for module name and Qt method overrides)
+    
+    # File size - could be fixed by splitting, but not worth it for single-file app
+    "C0302",  # too-many-lines
+    
+    # GUI app complexity - acceptable for complex UI components
+    "R0902",  # too-many-instance-attributes (GUI classes need many attributes)
+    "R0915",  # too-many-statements (GUI setup methods are legitimately long)
+    "R0911",  # too-many-return-statements (event handlers often have many paths)
+    "R0903",  # too-few-public-methods (simple data classes and UI widgets)
+    
+    # Missing docstrings for certain types of methods
+    "C0116",  # missing-function-docstring for private methods and event handlers
+]
+
+[tool.pylint.basic]
+# Allow short variable names that are common in graphics/GUI code
+good-names = ["i", "j", "k", "r", "c", "x", "y", "w", "h", "p", "q", "u", "v", "id"]
+
+[tool.pylint.extension-pkg-allow-list]
+extension-pkg-allow-list = ["PyQt5"]
+
+[tool.pylint.format]
+max-line-length = 88
+
+[tool.pylint.design]
+max-args = 10
+max-locals = 20
+max-branches = 15
+max-statements = 60
+max-positional-arguments = 8
