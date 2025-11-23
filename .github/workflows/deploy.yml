@@ -7,6 +7,7 @@ on:
       - "remetro-fetch/**"
       - "remetro-common/**"
       - "remetro-cloud/**"
+      - ".github/workflows/deploy.yml"
 
 permissions:
   contents: read
