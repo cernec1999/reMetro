@@ -52,6 +52,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+          output-env-credentials: true
 
       # ---- Login to ECR ----
       - name: Login to Amazon ECR
