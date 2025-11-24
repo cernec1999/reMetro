@@ -35,6 +35,19 @@ data "aws_subnets" "default" {
   }
 }
 
+# Pull detailed subnet objects
+data "aws_subnet" "default" {
+  for_each = toset(data.aws_subnets.default.ids)
+  id       = each.value
+}
+
+locals {
+  public_subnet_ids = [
+    for s in data.aws_subnet.default :
+    s.id if s.map_public_ip_on_launch
+  ]
+}
+
 resource "aws_security_group" "remetro_fetch" {
   name        = "remetro-fetch-sg"
   description = "Outbound for fetcher + optional inbound 3000"
@@ -198,7 +211,7 @@ resource "aws_ecs_service" "remetro_fetch" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = data.aws_subnets.default.ids
+    subnets         = local.public_subnet_ids
     security_groups = [aws_security_group.remetro_fetch.id]
     assign_public_ip = true
   }
