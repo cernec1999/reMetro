@@ -30,10 +30,10 @@ impl ReMetroPublisher {
             TrainPredictionsRequest::Station(station_code) => {
                 format!("reMetro/v1/predictions/station/{}", station_code)
             }
-            TrainPredictionsRequest::StationPlatform(station_code, platform_code) => {
+            TrainPredictionsRequest::StationTrack(station_code, track_code) => {
                 format!(
-                    "reMetro/v1/predictions/station/{}/platform/{}",
-                    station_code, platform_code
+                    "reMetro/v1/predictions/station/{}/track/{}",
+                    station_code, track_code
                 )
             }
         };

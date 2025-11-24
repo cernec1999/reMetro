@@ -112,9 +112,11 @@ pub struct DirectoryEvent {
 pub struct StationDirectory {
     station_by_code: RwLock<HashMap<WMATAStationCode, Station>>,
     tracks_by_code: RwLock<HashMap<WMATAStationCode, BTreeSet<WMATATrackCode>>>,
-    trains_by_platform: RwLock<HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>>,
+    trains_by_track: RwLock<HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>>,
     /// Global alias set for warnings + dedupe.
     aliases: RwLock<HashSet<String>>,
+    /// Unknown aliases seen so far.
+    unknown_aliases: RwLock<HashSet<String>>,
 }
 
 /// Thread-safe, shared reference to a StationDirectory.
@@ -125,8 +127,9 @@ impl Default for StationDirectory {
         Self {
             station_by_code: RwLock::new(HashMap::new()),
             tracks_by_code: RwLock::new(HashMap::new()),
-            trains_by_platform: RwLock::new(HashMap::new()),
+            trains_by_track: RwLock::new(HashMap::new()),
             aliases: RwLock::new(HashSet::new()),
+            unknown_aliases: RwLock::new(HashSet::new()),
         }
     }
 }
@@ -206,20 +209,20 @@ impl StationDirectory {
             .write()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
-        let mut platforms_map = self
+        let mut tracks_map = self
             .tracks_by_code
             .write()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
-        let mut trains_by_platform = self
-            .trains_by_platform
+        let mut trains_by_track = self
+            .trains_by_track
             .write()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
         // Snapshot old state for diffing.
-        let old_trains_by_platform = trains_by_platform.clone();
+        let old_trains_by_track = trains_by_track.clone();
 
-        trains_by_platform.clear();
+        trains_by_track.clear();
         let mut station_trains: HashMap<WMATAStationCode, Vec<TrainPrediction>> = HashMap::new();
 
         for p in &resp.trains {
@@ -246,10 +249,14 @@ impl StationDirectory {
                     "Warning: destination_name '{}' has no associated destination_code",
                     dest_name
                 );
+                self.unknown_aliases
+                    .write()
+                    .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
+                    .insert(dest_name.clone());
             }
 
             let track = WMATATrackCode::from_str(&p.group)?;
-            platforms_map
+            tracks_map
                 .entry(p.location_code.clone())
                 .or_default()
                 .insert(track);
@@ -262,11 +269,10 @@ impl StationDirectory {
                 .or_default()
                 .insert_sorted(train.clone());
 
-            // Platform-level lookup
-            let platform_key =
-                TrainPredictionsRequest::StationPlatform(p.location_code.clone(), track);
-            trains_by_platform
-                .entry(platform_key)
+            // Track-level lookup
+            let track_key = TrainPredictionsRequest::StationTrack(p.location_code.clone(), track);
+            trains_by_track
+                .entry(track_key)
                 .or_default()
                 .insert_sorted(train);
         }
@@ -274,28 +280,28 @@ impl StationDirectory {
         // Populate station-level aggregated keys
         for (station_code, trains) in station_trains {
             let station_key = TrainPredictionsRequest::Station(station_code);
-            trains_by_platform.insert(station_key, trains);
+            trains_by_track.insert(station_key, trains);
         }
 
         // Drop write locks before diff/notify (read-only from here on).
-        drop(trains_by_platform);
-        drop(platforms_map);
+        drop(trains_by_track);
+        drop(tracks_map);
         drop(names_map);
         drop(aliases_global);
 
-        self.check_and_notify_prediction_changes(resp, old_trains_by_platform)
+        self.check_and_notify_prediction_changes(resp, old_trains_by_track)
     }
 
     /// Emit events only for keys whose train lists changed.
     fn check_and_notify_prediction_changes(
         &self,
         resp: &WMATATrainPredictionResponse,
-        old_trains_by_platform: HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>,
+        old_trains_by_track: HashMap<TrainPredictionsRequest, Vec<TrainPrediction>>,
     ) -> Result<Vec<DirectoryEvent>, StationDirectoryError> {
         let mut events: Vec<DirectoryEvent> = Vec::new();
 
         let current_trains = self
-            .trains_by_platform
+            .trains_by_track
             .read()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
 
@@ -305,7 +311,7 @@ impl StationDirectory {
                 prediction.location_code.clone(),
             ));
             if let Ok(track) = WMATATrackCode::from_str(&prediction.group) {
-                affected_keys.insert(TrainPredictionsRequest::StationPlatform(
+                affected_keys.insert(TrainPredictionsRequest::StationTrack(
                     prediction.location_code.clone(),
                     track,
                 ));
@@ -314,7 +320,7 @@ impl StationDirectory {
 
         for key in affected_keys {
             if let Some(trains) = current_trains.get(&key) {
-                let changed = old_trains_by_platform
+                let changed = old_trains_by_track
                     .get(&key)
                     .map(|old| old != trains)
                     .unwrap_or(true);
@@ -329,6 +335,15 @@ impl StationDirectory {
         }
 
         Ok(events)
+    }
+
+    /// Return the list unknown aliases.
+    pub fn unknown_aliases(&self) -> Result<Vec<String>, StationDirectoryError> {
+        let unknown = self
+            .unknown_aliases
+            .read()
+            .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?;
+        Ok(unknown.iter().cloned().collect())
     }
 
     /// Get all stations as records.
@@ -347,14 +362,14 @@ impl StationDirectory {
             .get(&code)
             .cloned()
             .ok_or_else(|| {
-                StationDirectoryError::InvalidStationOrPlatform(TrainPredictionsRequest::Station(
+                StationDirectoryError::InvalidStationOrTrack(TrainPredictionsRequest::Station(
                     code.to_string(),
                 ))
             })
     }
 
-    /// Get a list of platform codes associated with a station code.
-    pub fn station_platforms(
+    /// Get a list of track codes associated with a station code.
+    pub fn station_tracks(
         &self,
         code: WMATAStationCode,
     ) -> Result<BTreeSet<WMATATrackCode>, StationDirectoryError> {
@@ -363,26 +378,26 @@ impl StationDirectory {
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
             .get(&code)
             .cloned()
-            .ok_or(StationDirectoryError::InvalidStationOrPlatform(
+            .ok_or(StationDirectoryError::InvalidStationOrTrack(
                 TrainPredictionsRequest::Station(code),
             ))
     }
 
-    /// Get predictions for a given station or station+platform.
+    /// Get predictions for a given station or station+track.
     pub fn predictions(
         &self,
         key: &TrainPredictionsRequest,
     ) -> Result<Vec<TrainPrediction>, StationDirectoryError> {
-        self.trains_by_platform
+        self.trains_by_track
             .read()
             .map_err(|e| StationDirectoryError::RwLockPoisonError(e.to_string()))?
             .get(key)
             .cloned()
-            .ok_or_else(|| StationDirectoryError::InvalidStationOrPlatform(key.clone()))
+            .ok_or_else(|| StationDirectoryError::InvalidStationOrTrack(key.clone()))
     }
 }
 
-/// PIMS "key" is station_code + platform/group.
+/// PIMS "key" is station_code + track/group.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PimsKey {
     pub station_code: WMATAStationCode,

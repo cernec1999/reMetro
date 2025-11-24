@@ -33,7 +33,7 @@ pub enum StationDirectoryError {
     PlatformParseError(#[from] ParseIntError),
     /// If a station code is not found
     #[error("Station and/or platform code not found: {0}")]
-    InvalidStationOrPlatform(TrainPredictionsRequest),
+    InvalidStationOrTrack(TrainPredictionsRequest),
     /// If a RwLock is poisoned
     #[error("RwLock poisoned: {0}")]
     RwLockPoisonError(String),

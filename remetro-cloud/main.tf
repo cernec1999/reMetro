@@ -16,7 +16,6 @@ locals {
   }
 }
 
-
 provider "aws" {
   region = var.aws_region
 }
@@ -35,7 +34,6 @@ data "aws_subnets" "default" {
   }
 }
 
-# Pull detailed subnet objects
 data "aws_subnet" "default" {
   for_each = toset(data.aws_subnets.default.ids)
   id       = each.value
@@ -54,8 +52,6 @@ resource "aws_security_group" "remetro_fetch" {
   vpc_id      = data.aws_vpc.default.id
   tags        = local.tags
 
-  # Optional inbound for axum server.
-  # If you don't want any inbound, delete this block.
   ingress {
     from_port   = 3000
     to_port     = 3000
@@ -63,7 +59,6 @@ resource "aws_security_group" "remetro_fetch" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow all outbound (WMATA HTTPS + AWS IoT TLS)
   egress {
     from_port   = 0
     to_port     = 0
@@ -84,8 +79,6 @@ resource "aws_ecr_repository" "remetro_fetch" {
   }
 }
 
-# Optional lifecycle policy to avoid storage creep
-# TODO: Do we need to tag this?
 resource "aws_ecr_lifecycle_policy" "remetro_fetch" {
   repository = aws_ecr_repository.remetro_fetch.name
   policy     = jsonencode({
@@ -136,19 +129,56 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Task role
 resource "aws_iam_role" "ecs_task" {
   tags               = local.tags
   name               = "remetro-fetch-task-role"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
 }
 
+data "aws_iam_policy_document" "ecs_task_policy" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_exec_ssm" {
+  name   = "remetro-fetch-ecs-exec-ssm"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_policy.json
+}
+
 # --------------------------
-# ECS cluster + task + service
+# ECS cluster + capacity providers
 # --------------------------
 resource "aws_ecs_cluster" "remetro" {
   tags = local.tags
   name = "remetro-cluster"
+}
+
+# NEW: attach FARGATE_SPOT + FARGATE to the cluster, set default strategy
+resource "aws_ecs_cluster_capacity_providers" "remetro" {
+  cluster_name = aws_ecs_cluster.remetro.name
+
+  capacity_providers = ["FARGATE_SPOT", "FARGATE"]
+
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 2   # prefer spot
+    base              = 0
+  }
+
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1   # fallback
+    base              = 0
+  }
 }
 
 resource "aws_ecs_task_definition" "remetro_fetch" {
@@ -184,6 +214,9 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
         }
       }
 
+      # NEWish: allow 2 minutes for graceful stop on Spot interruption
+      stopTimeout = 120
+
       secrets = [
         {
           name      = "REMETRO_WMATA_API_KEY"
@@ -203,17 +236,36 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
 }
 
 resource "aws_ecs_service" "remetro_fetch" {
-  tags            = local.tags
-  name            = "remetro-fetch-svc"
-  cluster         = aws_ecs_cluster.remetro.id
-  task_definition = aws_ecs_task_definition.remetro_fetch.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  tags                     = local.tags
+  name                     = "remetro-fetch-svc"
+  cluster                  = aws_ecs_cluster.remetro.id
+  task_definition          = aws_ecs_task_definition.remetro_fetch.arn
+  desired_count            = 1
+  enable_execute_command   = true
+
+  # NEW: prefer spot, fallback to on-demand if spot unavailable
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 2
+    base              = 0
+  }
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+    base              = 0
+  }
 
   network_configuration {
-    subnets         = local.public_subnet_ids
-    security_groups = [aws_security_group.remetro_fetch.id]
+    subnets          = local.public_subnet_ids
+    security_groups  = [aws_security_group.remetro_fetch.id]
     assign_public_ip = true
+  }
+
+  # Optional but helps avoid failed deploys leaving you stuck
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
   }
 }
 
@@ -226,7 +278,6 @@ data "aws_iam_policy_document" "ecs_exec_secrets" {
     ]
     resources = [
       aws_secretsmanager_secret.wmata_api_key.arn
-      # or data.aws_secretsmanager_secret.wmata_api_key.arn
     ]
   }
 }
@@ -237,9 +288,6 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
   policy = data.aws_iam_policy_document.ecs_exec_secrets.json
 }
 
-# --------------------------
-# Outputs
-# --------------------------
 output "ecr_repository_url" {
   value = aws_ecr_repository.remetro_fetch.repository_url
 }

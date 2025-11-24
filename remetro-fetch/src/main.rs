@@ -1,3 +1,5 @@
+use tokio_util::sync::CancellationToken;
+
 use crate::{
     client::WMATAClient, publisher::ReMetroPublisher, router::create_router,
     station_directory::StationDirectory,
@@ -12,8 +14,27 @@ pub mod station_directory;
 pub mod types;
 pub mod utils;
 
+/// Wait for SIGTERM signal (Unix-only)
+#[cfg(unix)]
+async fn wait_for_sigterm() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+    sigterm.recv().await;
+}
+
+/// Fallback for non-Unix systems (Windows)
+#[cfg(not(unix))]
+async fn wait_for_sigterm() {
+    // On Windows, we'll just wait indefinitely since SIGTERM isn't available
+    std::future::pending::<()>().await;
+}
+
 #[tokio::main]
 async fn main() {
+    // Create a cancellation token that will be shared between tasks; it will trigger on SIGTERM
+    // and SIGINT
+    let cancel_token = CancellationToken::new();
+
     // Read config and gracefully exit on error
     let config = match config::read_env_vars() {
         Ok(cfg) => cfg,
@@ -26,6 +47,20 @@ async fn main() {
         }
     };
 
+    // Listen for SIGTERM and SIGINT to trigger cancellation
+    let cancel_token_for_signal = cancel_token.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = wait_for_sigterm() => {
+                eprintln!("Received termination signal (SIGTERM). Initiating graceful shutdown...");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("Received interrupt signal (SIGINT). Initiating graceful shutdown...");
+            }
+        }
+        cancel_token_for_signal.cancel();
+    });
+
     // Create the shared station directory
     let station_directory = StationDirectory::new_shared();
 
@@ -33,6 +68,7 @@ async fn main() {
     let station_directory_for_fetch = station_directory.clone();
     let station_directory_for_server = station_directory.clone();
 
+    let fetch_handle_cancel_token = cancel_token.clone();
     let fetch_handle = tokio::spawn(async move {
         // Initialize WMATA client
         let client = match WMATAClient::new(
@@ -71,50 +107,47 @@ async fn main() {
 
         // Periodically fetch and process data until Ctrl-C
         loop {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    eprintln!("Ctrl-C received, stopping fetch loop.");
-                    break;
+            let predictions = match client.get_predictions_raw().await {
+                Ok(preds) => preds,
+                Err(e) => {
+                    eprintln!("Error fetching train predictions: {}", e);
+                    tokio::time::sleep(config.fetch_interval).await;
+                    return;
                 }
+            };
 
-                _ = async {
-                    let predictions = match client.get_predictions_raw().await {
-                        Ok(preds) => preds,
-                        Err(e) => {
-                            eprintln!("Error fetching train predictions: {}", e);
-                            tokio::time::sleep(config.fetch_interval).await;
-                            return;
-                        }
-                    };
-
-                    match station_directory_for_fetch.ingest_predictions(&predictions) {
-                        Ok(events) => {
-                            for event in events {
-                                if let Err(e) = mqtt_publisher.handle_update(event).await {
-                                    eprintln!("Error publishing update: {}", e);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error normalizing train predictions: {}", e);
+            match station_directory_for_fetch.ingest_predictions(&predictions) {
+                Ok(events) => {
+                    for event in events {
+                        if let Err(e) = mqtt_publisher.handle_update(event).await {
+                            eprintln!("Error publishing update: {}", e);
                         }
                     }
-
-                    tokio::time::sleep(config.fetch_interval).await;
-                } => {}
+                }
+                Err(e) => {
+                    eprintln!("Error normalizing train predictions: {}", e);
+                }
             }
+
+            // Gracefully exit if cancellation is requested.
+            if fetch_handle_cancel_token.is_cancelled() {
+                eprintln!("Stopping fetch loop due to shutdown signal.");
+                break;
+            }
+
+            tokio::time::sleep(config.fetch_interval).await;
         }
     });
 
+    let cancel_token_for_axum = cancel_token.clone();
     let server_handle = tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+        let listener = tokio::net::TcpListener::bind(config.web_bind_address.clone())
             .await
             .expect("failed to bind server port");
 
         axum::serve(listener, create_router(station_directory_for_server))
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-                eprintln!("Ctrl-C received, shutting down server.");
+            .with_graceful_shutdown(async move {
+                cancel_token_for_axum.cancelled().await;
             })
             .await
             .expect("server crashed");

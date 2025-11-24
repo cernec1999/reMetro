@@ -2,21 +2,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::{WMATAStationCode, WMATATrackCode};
 
-/// Subscription key for monitoring specific station/platform combinations
+/// Subscription key for monitoring specific station/track combinations
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TrainPredictionsRequest {
-    /// Monitor all platforms for a specific station
+    /// Monitor all tracks at a specific station
     Station(WMATAStationCode),
-    /// Monitor a specific platform at a specific station
-    StationPlatform(WMATAStationCode, WMATATrackCode),
+    /// Monitor a specific track at a specific station
+    StationTrack(WMATAStationCode, WMATATrackCode),
 }
 
 impl std::fmt::Display for TrainPredictionsRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TrainPredictionsRequest::Station(station) => write!(f, "Station({})", station),
-            TrainPredictionsRequest::StationPlatform(station, platform) => {
-                write!(f, "StationPlatform({}, {})", station, platform)
+            TrainPredictionsRequest::StationTrack(station, track) => {
+                write!(f, "StationTrack({}, {})", station, track)
             }
         }
     }
