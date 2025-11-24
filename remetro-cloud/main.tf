@@ -242,6 +242,7 @@ resource "aws_ecs_service" "remetro_fetch" {
   task_definition          = aws_ecs_task_definition.remetro_fetch.arn
   desired_count            = 1
   enable_execute_command   = true
+  force_new_deployment     = true
 
   # NEW: prefer spot, fallback to on-demand if spot unavailable
   capacity_provider_strategy {
