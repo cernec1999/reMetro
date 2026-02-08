@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package remetro;
+
+option java_package = "com.ccerne.remetro.proto";
+option java_multiple_files = true;
+
+// Train Predictions
+message TrainPrediction {
+  Line            line        = 1;
+  optional uint32 cars        = 2;
+  TrainMins       train_mins  = 3;
+  string          destination = 4;
+}
+
+// Represents Line (OR, YL, GR, BL, SV, RD)
+enum Line {
+  LINE_UNSPECIFIED = 0;
+  ORANGE           = 1;
+  YELLOW           = 2;
+  GREEN            = 3;
+  BLUE             = 4;
+  SILVER           = 5;
+  RED              = 6;
+}
+
+// Represents OtherStatus (ARR, BRD, DLY)
+enum OtherStatus {
+  OTHER_STATUS_UNSPECIFIED = 0;
+  ARRIVING                 = 1;
+  BOARDING                 = 2;
+  DELAYED                  = 3;
+}
+
+// Represents TrainMins
+message TrainMins {
+  oneof prediction {
+    uint32      minutes = 1;
+    OtherStatus status  = 2;
+    bool        unknown = 3;
+  }
+}
