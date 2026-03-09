@@ -16,10 +16,8 @@ public class HttpServerService {
     private static final Logger logger = LoggerFactory.getLogger(HttpServerService.class);
 
     private final HttpServer server;
-    private final AtomicReference<String> lastPayload;
 
     public HttpServerService(String bindAddress, AtomicReference<String> lastPayload) throws IOException {
-        this.lastPayload = lastPayload;
         String host = "0.0.0.0";
         int port = 3000;
         if (bindAddress != null && !bindAddress.isBlank()) {
@@ -59,8 +57,7 @@ public class HttpServerService {
     class LastHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            String value = lastPayload.get();
-            if (value == null) value = "";
+            String value = "{\"hi\":false}";
             byte[] resp = value.getBytes();
             exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, resp.length);

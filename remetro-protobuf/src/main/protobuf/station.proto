@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package remetro;
+
+option java_package = "com.ccerne.remetro.proto";
+option java_multiple_files = true;
+
+import "prediction.proto";
+
+// Which direction trains on this platform travel.
+// Left unset (DIRECTION_UNSPECIFIED) until direction data is available.
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  NORTHBOUND = 1;
+  SOUTHBOUND = 2;
+  EASTBOUND  = 3;
+  WESTBOUND  = 4;
+}
+
+// A single physical platform within a station.
+// One WMATA station code may have two platforms (Group 1 and 2).
+// Linked WMATA stations (e.g. Metro Center C01 + A01) are merged
+// into a single Station with multiple Platform entries.
+message Platform {
+  uint32 index       = 1;  // 1-based index within this station
+  string wmata_code  = 2;  // WMATA station code for this platform (e.g. "C01")
+  uint32 group       = 3;  // WMATA Group number (1 or 2)
+  Direction direction = 4; // Optional direction label
+}
+
+// Our canonical station — one entry per physical station complex.
+// Linked WMATA codes are merged here rather than kept as separate stations.
+message Station {
+  string code              = 1;  // Primary WMATA code used as our stable ID (e.g. "C01")
+  string name              = 2;  // Human-readable name, e.g. "Metro Center"
+  repeated Line lines      = 3;  // All lines serving this station (from prediction.proto)
+  repeated Platform platforms = 4;
+}
+
+// Top-level directory message — useful for pushing the full station list to devices.
+message StationList {
+  string transit_system       = 1;  // e.g. "wmata" — allows future multi-system support
+  repeated Station stations   = 2;
+}

@@ -1,38 +1,39 @@
 package com.ccerne.remetro.wmata;
 
+import com.ccerne.remetro.config.TrainFetchConfig;
 import com.ccerne.remetro.wmata.api.DefaultApi;
-import com.ccerne.remetro.wmata.invoker.ApiClient;
-import com.ccerne.remetro.wmata.invoker.ApiException;
-import com.ccerne.remetro.wmata.invoker.ApiResponse;
+import com.ccerne.remetro.wmata.models.StationInfoResponse;
+import com.ccerne.remetro.wmata.models.TrainPredictionResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /**
- * Small adapter around the generated WMATA OpenAPI client to provide
- * friendly methods returning raw response bodies (as String) where the
- * generator did not produce typed models.
+ * Thin wrapper around the OpenAPI-generated DefaultApi.
+ * Configures the HTTP client once and exposes typed methods for each WMATA endpoint.
  */
+@Component
 public final class WmataClient {
+
+    private static final Logger log = LoggerFactory.getLogger(WmataClient.class);
     private final DefaultApi api;
 
-    public WmataClient(DefaultApi api) {
-        this.api = api;
+    public WmataClient(TrainFetchConfig config) {
+        ApiClient client = new ApiClient();
+        client.setRequestInterceptor(builder -> builder.header("api_key", config.wmataApiKey));
+        client.updateBaseUri(config.wmataApiBaseUrl.toString());
+        client.setConnectTimeout(config.wmataApiTimeout);
+        this.api = new DefaultApi(client);
+        log.info("WMATA client initialized — base URI: {}", client.getBaseUri());
     }
 
-    /**
-     * Call the JSON predictions endpoint and return the raw response body as a String
-     * wrapped in {@link ApiResponse} so callers can inspect status and headers.
-     */
-    public ApiResponse<String> getPredictionJson(String stationCodes) throws ApiException {
-        ApiClient client = api.getApiClient();
-        okhttp3.Call call = api.getPredictionJsonCall(stationCodes, null);
-        return client.execute(call, String.class);
+    /** Fetches real-time train predictions. Pass "All" to get every station at once. */
+    public TrainPredictionResponse getPredictions(String stationCodes) throws ApiException {
+        return api.getPredictionJson(stationCodes);
     }
 
-    /**
-     * Call the XML predictions endpoint and return the raw response body as a String
-     */
-    public ApiResponse<String> getPredictionXml(String stationCodes) throws ApiException {
-        ApiClient client = api.getApiClient();
-        okhttp3.Call call = api.getPredictionXmlCall(stationCodes, null);
-        return client.execute(call, String.class);
+    /** Fetches static station information (names, line codes, linked stations). */
+    public StationInfoResponse getStations() throws ApiException {
+        return api.getStationsJson();
     }
 }

@@ -75,9 +75,10 @@ public final class TrainFetchConfig {
         try {
             String base = get.apply("WMATA_API_BASE_URL");
             if (base == null || base.isBlank()) {
-                base = "https://api.wmata.com/";
+                base = "https://api.wmata.com";
             }
             URI baseUri = URI.create(base);
+
 
             String key = get.apply("WMATA_API_KEY");
             if (key == null || key.isBlank()) {
