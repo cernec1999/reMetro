@@ -1,19 +1,19 @@
-# If you don't already have a provider in the account, create it instead:
-resource "aws_iam_openid_connect_provider" "github" {
-  tags            = local.tags
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
+# The GitHub Actions OIDC provider must be bootstrapped once by an admin before
+# any CI run can authenticate. We look it up here rather than creating it so we
+# don't hit a circular dependency (GitHub Actions needs the provider to assume a
+# role, but can't create the provider without already being authenticated).
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
 
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
-      # if using resource provider instead, use aws_iam_openid_connect_provider.github.arn
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
     }
 
     condition {
@@ -22,13 +22,11 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Restrict to your repo + main branch.
+    # Restrict to main branch pushes only
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [
-        "repo:cernec1999/reMetro:ref:refs/heads/main"
-      ]
+      values   = ["repo:cernec1999/reMetro:ref:refs/heads/main"]
     }
   }
 }
@@ -41,22 +39,17 @@ resource "aws_iam_role" "github_actions" {
 
 data "aws_caller_identity" "current" {}
 
-# Minimal policy for:
-# - pushing images to ECR
-# - updating ECS task defs/services
-# - reading IAM roles so TF can pass them
-# - managing the specific infra in this stack
 data "aws_iam_policy_document" "github_actions_policy" {
+  # --------------------------
+  # ECR: authenticate + push/pull this repo
+  # --------------------------
   statement {
-    sid     = "EcrAuthToken"
-    effect  = "Allow"
-    actions = ["ecr:GetAuthorizationToken"]
+    sid       = "EcrAuthToken"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
 
-  # --------------------------
-  # ECR: push/pull ONLY this repo
-  # --------------------------
   statement {
     sid    = "EcrPushPullRepo"
     effect = "Allow"
@@ -70,62 +63,60 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "ecr:PutImage",
       "ecr:DescribeImages",
       "ecr:ListImages",
-      "ecr:TagResource"
+      "ecr:TagResource",
     ]
     resources = [aws_ecr_repository.remetro_fetch.arn]
   }
 
-  # Allow describing the repo itself
   statement {
-    sid     = "EcrDescribeRepo"
-    effect  = "Allow"
-    actions = ["ecr:DescribeRepositories"]
+    sid       = "EcrDescribeRepo"
+    effect    = "Allow"
+    actions   = ["ecr:DescribeRepositories"]
     resources = [aws_ecr_repository.remetro_fetch.arn]
   }
 
   # --------------------------
-  # ECS: update service ONLY for this cluster/service
+  # ECS: update service + task definitions
   # --------------------------
   statement {
     sid    = "EcsServiceDeploy"
     effect = "Allow"
     actions = [
       "ecs:UpdateService",
-      "ecs:DescribeServices"
+      "ecs:DescribeServices",
     ]
     resources = [
       aws_ecs_service.remetro_fetch.arn,
-      aws_ecs_cluster.remetro.arn
+      aws_ecs_cluster.remetro.arn,
     ]
   }
 
-  # RegisterTaskDefinition does NOT support resource-level permissions
+  # RegisterTaskDefinition does not support resource-level permissions
   statement {
-    sid     = "EcsRegisterTaskDef"
-    effect  = "Allow"
-    actions = ["ecs:RegisterTaskDefinition"]
+    sid       = "EcsRegisterTaskDef"
+    effect    = "Allow"
+    actions   = ["ecs:RegisterTaskDefinition"]
     resources = ["*"]
   }
 
-  # Describe specific family revisions only
   statement {
-    sid     = "EcsDescribeTaskDefFamily"
+    sid     = "EcsDescribeTaskDef"
     effect  = "Allow"
     actions = ["ecs:DescribeTaskDefinition"]
     resources = [
-      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/remetro-fetch*"
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/remetro-fetch*",
     ]
   }
 
-  # List/describe tasks, but only inside this cluster
+  # List/describe tasks scoped to this cluster
   statement {
-    sid     = "EcsTasksInClusterOnly"
-    effect  = "Allow"
+    sid    = "EcsTasksInCluster"
+    effect = "Allow"
     actions = [
       "ecs:ListTasks",
-      "ecs:DescribeTasks"
+      "ecs:DescribeTasks",
     ]
-    resources = ["*"] # tasks are dynamic ARNs
+    resources = ["*"]
     condition {
       test     = "ArnEquals"
       variable = "ecs:cluster"
@@ -134,65 +125,25 @@ data "aws_iam_policy_document" "github_actions_policy" {
   }
 
   # --------------------------
-  # IAM: only pass the two ECS roles created by TF
+  # IAM: pass ECS roles + manage this stack's IAM resources
   # --------------------------
   statement {
-    sid     = "AllowPassOnlyEcsRoles"
+    sid     = "IamPassEcsRoles"
     effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       aws_iam_role.ecs_task_execution.arn,
-      aws_iam_role.ecs_task.arn
+      aws_iam_role.ecs_task.arn,
     ]
   }
 
-  # --------------------------
-  # CloudWatch logs: only your log group
-  # CreateLogGroup doesn't support ARNs well when creating -> tag-gated below
-  # --------------------------
   statement {
-    sid     = "LogsManageRemetroGroup"
-    effect  = "Allow"
-    actions = [
-      "logs:PutRetentionPolicy",
-      "logs:DescribeLogGroups"
-    ]
-    resources = [
-      aws_cloudwatch_log_group.remetro_fetch.arn
-    ]
-  }
-
-  # --------------------------
-  # Terraform create/update/destroy for tagged resources
-  # --------------------------
-  statement {
-    sid    = "TerraformTaggedResources"
+    sid    = "IamManageRemetroResources"
     effect = "Allow"
     actions = [
-      # ECR
-      "ecr:CreateRepository",
-      "ecr:DeleteRepository",
-      "ecr:PutLifecyclePolicy",
-      "ecr:DeleteLifecyclePolicy",
-
-      # ECS
-      "ecs:CreateCluster",
-      "ecs:DeleteCluster",
-      "ecs:CreateService",
-      "ecs:DeleteService",
-      "ecs:DeregisterTaskDefinition",
-
-      # EC2 networking (mutating only — Describe* moved to separate statement below)
-      "ec2:CreateSecurityGroup",
-      "ec2:DeleteSecurityGroup",
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:RevokeSecurityGroupIngress",
-      "ec2:AuthorizeSecurityGroupEgress",
-      "ec2:RevokeSecurityGroupEgress",
-
-      # IAM resources TF manages
       "iam:CreateRole",
       "iam:DeleteRole",
+      "iam:TagRole",
       "iam:AttachRolePolicy",
       "iam:DetachRolePolicy",
       "iam:PutRolePolicy",
@@ -200,28 +151,80 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "iam:GetRole",
       "iam:ListRolePolicies",
       "iam:ListAttachedRolePolicies",
-
-      # Logs
-      "logs:CreateLogGroup",
-      "logs:DeleteLogGroup"
+      "iam:CreatePolicy",
+      "iam:DeletePolicy",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:CreatePolicyVersion",
+      "iam:ListPolicyVersions",
     ]
     resources = ["*"]
-
-    # Only allow if TF is creating/updating resources in the remetro project
     condition {
       test     = "StringEquals"
       variable = "aws:RequestTag/Project"
       values   = ["remetro"]
     }
+  }
+
+  # --------------------------
+  # CloudWatch Logs
+  # --------------------------
+  statement {
+    sid    = "LogsManageRemetroGroup"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:DeleteLogGroup",
+      "logs:TagResource",
+      "logs:PutRetentionPolicy",
+      "logs:DescribeLogGroups",
+    ]
+    resources = [
+      aws_cloudwatch_log_group.remetro_fetch.arn,
+      "${aws_cloudwatch_log_group.remetro_fetch.arn}:*",
+    ]
+  }
+
+  # --------------------------
+  # Secrets Manager
+  # --------------------------
+  statement {
+    sid    = "SecretsManagerRemetro"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:DeleteSecret",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:TagResource",
+    ]
+    resources = [aws_secretsmanager_secret.wmata_api_key.arn]
+  }
+
+  # --------------------------
+  # EC2 networking: mutating (tag-gated on request)
+  # --------------------------
+  statement {
+    sid    = "Ec2ManageSecurityGroups"
+    effect = "Allow"
+    actions = [
+      "ec2:CreateSecurityGroup",
+      "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:CreateTags",
+    ]
+    resources = ["*"]
     condition {
       test     = "StringEquals"
-      variable = "aws:ResourceTag/Project"
+      variable = "aws:RequestTag/Project"
       values   = ["remetro"]
     }
   }
 
-  # EC2 Describe* actions don't support resource-level permissions or tag conditions
-  # so they must be in their own unconditional statement.
+  # EC2 Describe* actions don't support resource-level or tag conditions
   statement {
     sid    = "Ec2DescribeNetworking"
     effect = "Allow"
@@ -234,10 +237,72 @@ data "aws_iam_policy_document" "github_actions_policy" {
     ]
     resources = ["*"]
   }
+
+  # --------------------------
+  # ECS cluster/service infrastructure (tag-gated on request)
+  # --------------------------
+  statement {
+    sid    = "EcsManageInfra"
+    effect = "Allow"
+    actions = [
+      "ecs:CreateCluster",
+      "ecs:DeleteCluster",
+      "ecs:CreateService",
+      "ecs:DeleteService",
+      "ecs:DeregisterTaskDefinition",
+      "ecs:TagResource",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["remetro"]
+    }
+  }
+
+  # --------------------------
+  # ECR: create/delete repository (tag-gated on request)
+  # --------------------------
+  statement {
+    sid    = "EcrManageRepo"
+    effect = "Allow"
+    actions = [
+      "ecr:CreateRepository",
+      "ecr:DeleteRepository",
+      "ecr:PutLifecyclePolicy",
+      "ecr:DeleteLifecyclePolicy",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["remetro"]
+    }
+  }
+
+  # --------------------------
+  # S3: Terraform remote state
+  # --------------------------
+  statement {
+    sid    = "TerraformStateS3"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucket",
+      "s3:GetBucketVersioning",
+    ]
+    resources = [
+      "arn:aws:s3:::remetro-terraform-state",
+      "arn:aws:s3:::remetro-terraform-state/*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "github_actions" {
-  tags = local.tags
+  tags   = local.tags
   name   = "remetro-github-actions-policy"
   policy = data.aws_iam_policy_document.github_actions_policy.json
 }

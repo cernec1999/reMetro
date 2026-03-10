@@ -6,6 +6,14 @@ terraform {
       version = "~> 6.0"
     }
   }
+
+  backend "s3" {
+    bucket       = "remetro-terraform-state"
+    key          = "remetro-fetch/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 locals {
@@ -81,7 +89,7 @@ resource "aws_ecr_repository" "remetro_fetch" {
 
 resource "aws_ecr_lifecycle_policy" "remetro_fetch" {
   repository = aws_ecr_repository.remetro_fetch.name
-  policy     = jsonencode({
+  policy = jsonencode({
     rules = [{
       rulePriority = 1
       description  = "Keep last 20 images"
@@ -169,13 +177,13 @@ resource "aws_ecs_cluster_capacity_providers" "remetro" {
 
   default_capacity_provider_strategy {
     capacity_provider = "FARGATE_SPOT"
-    weight            = 2   # prefer spot
+    weight            = 2 # prefer spot
     base              = 0
   }
 
   default_capacity_provider_strategy {
     capacity_provider = "FARGATE"
-    weight            = 1   # fallback
+    weight            = 1 # fallback
     base              = 0
   }
 }
@@ -233,22 +241,22 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
 
       environment = [
         { name = "REMETRO_WMATA_API_TIMEOUT", value = tostring(var.wmata_api_timeout) },
-        { name = "REMETRO_MQTT_BROKER",       value = var.mqtt_broker },
-        { name = "REMETRO_MQTT_PORT",         value = tostring(var.mqtt_port) },
-        { name = "REMETRO_MQTT_CLIENT_ID",    value = var.mqtt_client_id },
+        { name = "REMETRO_MQTT_BROKER", value = var.mqtt_broker },
+        { name = "REMETRO_MQTT_PORT", value = tostring(var.mqtt_port) },
+        { name = "REMETRO_MQTT_CLIENT_ID", value = var.mqtt_client_id },
       ]
     }
   ])
 }
 
 resource "aws_ecs_service" "remetro_fetch" {
-  tags                     = local.tags
-  name                     = "remetro-fetch-svc"
-  cluster                  = aws_ecs_cluster.remetro.id
-  task_definition          = aws_ecs_task_definition.remetro_fetch.arn
-  desired_count            = 1
-  enable_execute_command   = true
-  force_new_deployment     = true
+  tags                   = local.tags
+  name                   = "remetro-fetch-svc"
+  cluster                = aws_ecs_cluster.remetro.id
+  task_definition        = aws_ecs_task_definition.remetro_fetch.arn
+  desired_count          = 1
+  enable_execute_command = true
+  force_new_deployment   = true
 
   # NEW: prefer spot, fallback to on-demand if spot unavailable
   capacity_provider_strategy {
