@@ -51,6 +51,13 @@ debug/
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+# Java / Maven
+*.class
+*.jar
+*.war
+# Paho MQTT persistence files written to working directory
+reMetroClient*/
+
 # Cloud stuff
 .terraform
 

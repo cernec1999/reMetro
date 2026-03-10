@@ -2,66 +2,65 @@ name: Deploy remetro-fetch to ECS
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - "remetro-fetch/**"
-      - "remetro-common/**"
+      - "remetro-protobuf/**"
       - "remetro-cloud/**"
       - ".github/workflows/deploy.yml"
 
 permissions:
   contents: read
   id-token: write
-  packages: read
 
 concurrency:
   group: deploy-remetro-fetch-main
   cancel-in-progress: true
 
 jobs:
-  build_test:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
 
-      - name: Build remetro-fetch
-        run: cargo build --release --manifest-path remetro-fetch/Cargo.toml
-
-      - name: Test remetro-fetch
-        run: cargo test --manifest-path remetro-fetch/Cargo.toml
+      - name: Run tests
+        working-directory: remetro-fetch
+        run: mvn --no-transfer-progress test
 
   deploy:
-    needs: build_test
+    needs: test
     runs-on: ubuntu-latest
     env:
-      # TODO: Do we need this if prod.tfvars has region hardcoded?
       AWS_REGION: us-east-1
       ECR_REPO: remetro-fetch
       TF_DIR: remetro-cloud
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # ---- AWS auth via OIDC (no AWS keys stored in GitHub) ----
+      # ---- AWS auth via OIDC (no long-lived keys stored in GitHub) ----
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           audience: sts.amazonaws.com
-          output-env-credentials: true
 
-      # ---- Login to ECR ----
       - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ---- Build & push image (root context; Dockerfile in remetro-fetch/) ----
+      # ---- Build & push Docker image (root context; Dockerfile in remetro-fetch/) ----
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -71,6 +70,8 @@ jobs:
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # ---- Terraform apply ----
       - name: Setup Terraform
@@ -80,7 +81,7 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform init
 
-      - name: Terraform Apply (prod)
+      - name: Terraform Apply
         working-directory: ${{ env.TF_DIR }}
         run: |
           terraform apply \
