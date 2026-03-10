@@ -10,12 +10,14 @@
     "A15": ["Shady Grv", "Shady Grove"],
     "C08": ["Pentgn City", "Pntgn Cty"],
     "C15": ["Huntington"],
+    "D06": ["Eastern Mkt", "Estrn Mkt"],
     "D13": ["NewCrlton", "N Carrollton"],
     "E01": ["MtVern Sq", "Mt Vern Sq"],
     "E10": ["Greenbelt"],
     "F11": ["Branch Av", "Branch Ave"],
     "G03": ["Addison Rd"],
-    "N06": ["Wiehle Rest"]
+    "N06": ["Wiehle Rest"],
+    "N10": ["Dulles Air"]
   },
   "no_passenger_aliases": ["No Passenger", "Train"],
   "last_train_aliases": ["LAST TRAIN", "LastTrain"]
