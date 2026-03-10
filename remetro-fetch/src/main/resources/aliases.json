@@ -15,7 +15,7 @@
     "E10": ["Greenbelt"],
     "F11": ["Branch Av", "Branch Ave"],
     "G03": ["Addison Rd"],
-    "N06": ["Wiehle Rest"],
+    "N06": ["Wiehle Rest"]
   },
   "no_passenger_aliases": ["No Passenger", "Train"],
   "last_train_aliases": ["LAST TRAIN", "LastTrain"]
