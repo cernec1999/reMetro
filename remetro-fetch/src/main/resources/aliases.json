@@ -13,7 +13,9 @@
     "D13": ["NewCrlton", "N Carrollton"],
     "E01": ["MtVern Sq", "Mt Vern Sq"],
     "E10": ["Greenbelt"],
-    "F11": ["Branch Av", "Branch Ave"]
+    "F11": ["Branch Av", "Branch Ave"],
+    "G03": ["Addison Rd"],
+    "N06": ["Wiehle Rest"],
   },
   "no_passenger_aliases": ["No Passenger", "Train"],
   "last_train_aliases": ["LAST TRAIN", "LastTrain"]
