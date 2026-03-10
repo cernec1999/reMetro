@@ -182,16 +182,13 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "ecs:DeleteService",
       "ecs:DeregisterTaskDefinition",
 
-      # EC2 networking
+      # EC2 networking (mutating only — Describe* moved to separate statement below)
       "ec2:CreateSecurityGroup",
       "ec2:DeleteSecurityGroup",
       "ec2:AuthorizeSecurityGroupIngress",
       "ec2:RevokeSecurityGroupIngress",
       "ec2:AuthorizeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupEgress",
-      "ec2:DescribeVpcs",
-      "ec2:DescribeSubnets",
-      "ec2:DescribeSecurityGroups",
 
       # IAM resources TF manages
       "iam:CreateRole",
@@ -221,6 +218,19 @@ data "aws_iam_policy_document" "github_actions_policy" {
       variable = "aws:ResourceTag/Project"
       values   = ["remetro"]
     }
+  }
+
+  # EC2 Describe* actions don't support resource-level permissions or tag conditions
+  # so they must be in their own unconditional statement.
+  statement {
+    sid    = "Ec2DescribeNetworking"
+    effect = "Allow"
+    actions = [
+      "ec2:DescribeVpcs",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeSecurityGroups",
+    ]
+    resources = ["*"]
   }
 }
 
