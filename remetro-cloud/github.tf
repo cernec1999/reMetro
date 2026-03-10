@@ -40,6 +40,42 @@ resource "aws_iam_role" "github_actions" {
 data "aws_caller_identity" "current" {}
 
 data "aws_iam_policy_document" "github_actions_policy" {
+
+  # --------------------------
+  # Read-only: Terraform state refresh + Describe for all managed resources.
+  # Read operations never carry aws:RequestTag so they must be unconditional.
+  # --------------------------
+  statement {
+    sid    = "ReadRemetroResources"
+    effect = "Allow"
+    actions = [
+      # IAM
+      "iam:GetRole",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:ListPolicyVersions",
+      "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListOpenIDConnectProviders",
+      "iam:GetOpenIDConnectProvider",
+      # ECR
+      "ecr:DescribeRepositories",
+      "ecr:ListTagsForResource",
+      "ecr:GetLifecyclePolicy",
+      # ECS
+      "ecs:DescribeClusters",
+      "ecs:DescribeServices",
+      "ecs:DescribeTaskDefinition",
+      "ecs:DescribeCapacityProviders",
+      # CloudWatch Logs
+      "logs:DescribeLogGroups",
+      # Secrets Manager
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetResourcePolicy",
+    ]
+    resources = ["*"]
+  }
+
   # --------------------------
   # ECR: authenticate + push/pull this repo
   # --------------------------
@@ -68,51 +104,14 @@ data "aws_iam_policy_document" "github_actions_policy" {
     resources = [aws_ecr_repository.remetro_fetch.arn]
   }
 
-  statement {
-    sid       = "EcrDescribeRepo"
-    effect    = "Allow"
-    actions   = ["ecr:DescribeRepositories"]
-    resources = [aws_ecr_repository.remetro_fetch.arn]
-  }
-
   # --------------------------
-  # ECS: update service + task definitions
+  # ECS: deploy (update service + register task definitions)
   # --------------------------
   statement {
     sid    = "EcsServiceDeploy"
     effect = "Allow"
     actions = [
       "ecs:UpdateService",
-      "ecs:DescribeServices",
-    ]
-    resources = [
-      aws_ecs_service.remetro_fetch.arn,
-      aws_ecs_cluster.remetro.arn,
-    ]
-  }
-
-  # RegisterTaskDefinition does not support resource-level permissions
-  statement {
-    sid       = "EcsRegisterTaskDef"
-    effect    = "Allow"
-    actions   = ["ecs:RegisterTaskDefinition"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid     = "EcsDescribeTaskDef"
-    effect  = "Allow"
-    actions = ["ecs:DescribeTaskDefinition"]
-    resources = [
-      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/remetro-fetch*",
-    ]
-  }
-
-  # List/describe tasks scoped to this cluster
-  statement {
-    sid    = "EcsTasksInCluster"
-    effect = "Allow"
-    actions = [
       "ecs:ListTasks",
       "ecs:DescribeTasks",
     ]
@@ -124,8 +123,19 @@ data "aws_iam_policy_document" "github_actions_policy" {
     }
   }
 
+  # RegisterTaskDefinition and DescribeTaskDefinition don't support resource-level permissions
+  statement {
+    sid    = "EcsTaskDef"
+    effect = "Allow"
+    actions = [
+      "ecs:RegisterTaskDefinition",
+      "ecs:DeregisterTaskDefinition",
+    ]
+    resources = ["*"]
+  }
+
   # --------------------------
-  # IAM: pass ECS roles + manage this stack's IAM resources
+  # IAM: pass ECS roles
   # --------------------------
   statement {
     sid     = "IamPassEcsRoles"
@@ -137,8 +147,12 @@ data "aws_iam_policy_document" "github_actions_policy" {
     ]
   }
 
+  # --------------------------
+  # Mutating writes — all tag-gated on aws:RequestTag/Project=remetro
+  # so Terraform must tag resources it creates.
+  # --------------------------
   statement {
-    sid    = "IamManageRemetroResources"
+    sid    = "IamWriteRemetro"
     effect = "Allow"
     actions = [
       "iam:CreateRole",
@@ -148,15 +162,9 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "iam:DetachRolePolicy",
       "iam:PutRolePolicy",
       "iam:DeleteRolePolicy",
-      "iam:GetRole",
-      "iam:ListRolePolicies",
-      "iam:ListAttachedRolePolicies",
       "iam:CreatePolicy",
       "iam:DeletePolicy",
-      "iam:GetPolicy",
-      "iam:GetPolicyVersion",
       "iam:CreatePolicyVersion",
-      "iam:ListPolicyVersions",
     ]
     resources = ["*"]
     condition {
@@ -166,35 +174,64 @@ data "aws_iam_policy_document" "github_actions_policy" {
     }
   }
 
-  # --------------------------
-  # CloudWatch Logs
-  # --------------------------
   statement {
-    sid    = "LogsManageRemetroGroup"
+    sid    = "EcsWriteRemetro"
+    effect = "Allow"
+    actions = [
+      "ecs:CreateCluster",
+      "ecs:DeleteCluster",
+      "ecs:CreateService",
+      "ecs:DeleteService",
+      "ecs:TagResource",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["remetro"]
+    }
+  }
+
+  statement {
+    sid    = "EcrWriteRemetro"
+    effect = "Allow"
+    actions = [
+      "ecr:CreateRepository",
+      "ecr:DeleteRepository",
+      "ecr:PutLifecyclePolicy",
+      "ecr:DeleteLifecyclePolicy",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["remetro"]
+    }
+  }
+
+  statement {
+    sid    = "LogsWriteRemetro"
     effect = "Allow"
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
       "logs:TagResource",
       "logs:PutRetentionPolicy",
-      "logs:DescribeLogGroups",
     ]
-    resources = [
-      aws_cloudwatch_log_group.remetro_fetch.arn,
-      "${aws_cloudwatch_log_group.remetro_fetch.arn}:*",
-    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["remetro"]
+    }
   }
 
-  # --------------------------
-  # Secrets Manager
-  # --------------------------
   statement {
-    sid    = "SecretsManagerRemetro"
+    sid    = "SecretsManagerWriteRemetro"
     effect = "Allow"
     actions = [
       "secretsmanager:CreateSecret",
       "secretsmanager:DeleteSecret",
-      "secretsmanager:DescribeSecret",
       "secretsmanager:GetSecretValue",
       "secretsmanager:TagResource",
     ]
@@ -202,10 +239,10 @@ data "aws_iam_policy_document" "github_actions_policy" {
   }
 
   # --------------------------
-  # EC2 networking: mutating (tag-gated on request)
+  # EC2 networking
   # --------------------------
   statement {
-    sid    = "Ec2ManageSecurityGroups"
+    sid    = "Ec2WriteSecurityGroups"
     effect = "Allow"
     actions = [
       "ec2:CreateSecurityGroup",
@@ -224,7 +261,7 @@ data "aws_iam_policy_document" "github_actions_policy" {
     }
   }
 
-  # EC2 Describe* actions don't support resource-level or tag conditions
+  # Describe* never supports tag conditions
   statement {
     sid    = "Ec2DescribeNetworking"
     effect = "Allow"
@@ -239,49 +276,7 @@ data "aws_iam_policy_document" "github_actions_policy" {
   }
 
   # --------------------------
-  # ECS cluster/service infrastructure (tag-gated on request)
-  # --------------------------
-  statement {
-    sid    = "EcsManageInfra"
-    effect = "Allow"
-    actions = [
-      "ecs:CreateCluster",
-      "ecs:DeleteCluster",
-      "ecs:CreateService",
-      "ecs:DeleteService",
-      "ecs:DeregisterTaskDefinition",
-      "ecs:TagResource",
-    ]
-    resources = ["*"]
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/Project"
-      values   = ["remetro"]
-    }
-  }
-
-  # --------------------------
-  # ECR: create/delete repository (tag-gated on request)
-  # --------------------------
-  statement {
-    sid    = "EcrManageRepo"
-    effect = "Allow"
-    actions = [
-      "ecr:CreateRepository",
-      "ecr:DeleteRepository",
-      "ecr:PutLifecyclePolicy",
-      "ecr:DeleteLifecyclePolicy",
-    ]
-    resources = ["*"]
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/Project"
-      values   = ["remetro"]
-    }
-  }
-
-  # --------------------------
-  # S3: Terraform remote state
+  # S3 + ECS cluster capacity: Terraform remote state + cluster refresh
   # --------------------------
   statement {
     sid    = "TerraformStateS3"
@@ -299,6 +294,14 @@ data "aws_iam_policy_document" "github_actions_policy" {
     ]
   }
 
+  statement {
+    sid    = "EcsClusterCapacityProviders"
+    effect = "Allow"
+    actions = [
+      "ecs:PutClusterCapacityProviders",
+    ]
+    resources = [aws_ecs_cluster.remetro.arn]
+  }
 }
 
 resource "aws_iam_policy" "github_actions" {
