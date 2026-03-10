@@ -1,7 +1,15 @@
 {
     "folders": [
         {
-            "name": "🦀 Rust Common Library", 
+            "name": "☕ Metro Fetch Service (Java)",
+            "path": "./remetro-fetch"
+        },
+        {
+            "name": "📦 Protobuf Definitions",
+            "path": "./remetro-protobuf"
+        },
+        {
+            "name": "🦀 Rust Common Library",
             "path": "./remetro-common"
         },
         {
@@ -9,12 +17,8 @@
             "path": "./remetro-esp32s3"
         },
         {
-            "name": "🖌️ Metro Render Library", 
+            "name": "🖌️ Metro Render Library",
             "path": "./remetro-render"
-        },
-        {
-            "name": "🚄 Metro Fetch API",
-            "path": "./remetro-fetch"
         },
         {
             "name": "☁️ Cloud",
@@ -37,28 +41,41 @@
         // Global settings
         "files.associations": {
             "*.rs": "rust",
-            "*.toml": "toml"
+            "*.toml": "toml",
+            "*.proto": "proto3"
         },
-        
-        // Rust Analyzer - Default to desktop development
+
+        // Rust Analyzer
         "rust-analyzer.cargo.buildScripts.enable": true,
         "rust-analyzer.check.command": "clippy",
         "rust-analyzer.cargo.autoreload": true,
-        
-        // Different Rust Analyzer configs per folder
         "[rust]": {
             "editor.defaultFormatter": "rust-lang.rust-analyzer",
             "editor.formatOnSave": true
         },
-        
+
+        // Java
+        "[java]": {
+            "editor.formatOnSave": true,
+            "editor.defaultFormatter": "redhat.java"
+        },
+        "java.configuration.updateBuildConfiguration": "automatic",
+        "java.compile.nullAnalysis.mode": "automatic",
+        "java.project.sourcePaths": [
+            "src/main/java",
+            "target/generated-sources/protobuf",
+            "target/generated-sources/openapi/src/main/java"
+        ],
+
         // Terminal settings
         "terminal.integrated.cwd": "${workspaceFolder}",
-        
+
         // File explorer
         "explorer.fileNesting.enabled": true,
         "explorer.fileNesting.patterns": {
             "Cargo.toml": "Cargo.lock,rust-toolchain.toml,.cargo/",
-            "*.rs": "$(capture).exe,$(capture).pdb"
+            "*.rs": "$(capture).exe,$(capture).pdb",
+            "pom.xml": ".mvn/,mvnw,mvnw.cmd"
         }
-    },
+    }
 }

@@ -10,15 +10,15 @@ variable "ecr_repo_name" {
 }
 
 variable "task_cpu" {
-  description = "The CPU units for the ECS task."
+  description = "The CPU units for the ECS task. 512 gives the JVM a decent startup budget."
   type        = number
-  default     = 256
+  default     = 512
 }
 
 variable "task_memory" {
-  description = "The memory (in MiB) for the ECS task."
+  description = "The memory (in MiB) for the ECS task. Spring Boot JVM needs at least 512 MiB; 1024 is comfortable."
   type        = number
-  default     = 512
+  default     = 1024
 }
 
 variable "image_tag" {

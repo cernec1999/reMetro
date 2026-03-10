@@ -1,0 +1,20 @@
+{
+  "linked_stations": {
+    "C01": ["A01"],
+    "B01": ["F01"],
+    "B06": ["E06"],
+    "D03": ["F03"]
+  },
+  "station_aliases": {
+    "A02": ["Farragt N", "Farragut N."],
+    "A15": ["Shady Grv", "Shady Grove"],
+    "C08": ["Pentgn City", "Pntgn Cty"],
+    "C15": ["Huntington"],
+    "D13": ["NewCrlton", "N Carrollton"],
+    "E01": ["MtVern Sq", "Mt Vern Sq"],
+    "E10": ["Greenbelt"],
+    "F11": ["Branch Av", "Branch Ave"]
+  },
+  "no_passenger_aliases": ["No Passenger", "Train"],
+  "last_train_aliases": ["LAST TRAIN", "LastTrain"]
+}

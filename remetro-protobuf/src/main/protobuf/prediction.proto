@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package remetro;
+
+option java_package = "com.ccerne.remetro.proto";
+option java_multiple_files = true;
+
+message TrainPredictionResponse {
+  repeated PredictionItem items = 1;
+}
+
+message PredictionItem {
+  // The oneof ensures that an item is EITHER a valid train OR a no-passenger signal
+  oneof item_type {
+    TrainPrediction train = 1;
+    NoPassenger no_passenger = 2;
+  }
+}
+
+// An empty message used as a signal. It occupies almost no space in the binary format.
+message NoPassenger {}
+
+message TrainPrediction {
+  Line line = 1;
+  optional uint32 cars = 2;  // absent = unknown (WMATA omits car count for some in-service trains)
+  TrainMins train_mins = 3;
+  string destination = 4;
+  bool last_train = 5;
+}
+
+message TrainMins {
+  oneof prediction {
+    uint32 minutes = 1;
+    OtherStatus status = 2;
+  }
+}
+
+enum Line {
+  LINE_UNSPECIFIED = 0;
+  ORANGE = 1;
+  YELLOW = 2;
+  GREEN = 3;
+  BLUE = 4;
+  SILVER = 5;
+  RED = 6;
+}
+
+enum OtherStatus {
+  STATUS_UNSPECIFIED = 0;
+  ARRIVING = 1;
+  BOARDING = 2;
+  DELAYED = 3;
+}

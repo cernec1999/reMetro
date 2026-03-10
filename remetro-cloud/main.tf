@@ -53,8 +53,8 @@ resource "aws_security_group" "remetro_fetch" {
   tags        = local.tags
 
   ingress {
-    from_port   = 3000
-    to_port     = 3000
+    from_port   = 8080
+    to_port     = 8080
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -162,7 +162,6 @@ resource "aws_ecs_cluster" "remetro" {
   name = "remetro-cluster"
 }
 
-# NEW: attach FARGATE_SPOT + FARGATE to the cluster, set default strategy
 resource "aws_ecs_cluster_capacity_providers" "remetro" {
   cluster_name = aws_ecs_cluster.remetro.name
 
@@ -199,11 +198,19 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
 
       portMappings = [
         {
-          containerPort = 3000
-          hostPort      = 3000
+          containerPort = 8080
+          hostPort      = 8080
           protocol      = "tcp"
         }
       ]
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -214,7 +221,7 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
         }
       }
 
-      # NEWish: allow 2 minutes for graceful stop on Spot interruption
+      # Allow 2 minutes for graceful stop on Spot interruption
       stopTimeout = 120
 
       secrets = [
@@ -226,10 +233,9 @@ resource "aws_ecs_task_definition" "remetro_fetch" {
 
       environment = [
         { name = "REMETRO_WMATA_API_TIMEOUT", value = tostring(var.wmata_api_timeout) },
-        { name = "REMETRO_MQTT_BROKER",      value = var.mqtt_broker },
-        { name = "REMETRO_MQTT_PORT",        value = tostring(var.mqtt_port) },
-        { name = "REMETRO_MQTT_CLIENT_ID",   value = var.mqtt_client_id },
-        { name = "REMETRO_WEB_BIND_ADDRESS", value = "0.0.0.0:3000" },
+        { name = "REMETRO_MQTT_BROKER",       value = var.mqtt_broker },
+        { name = "REMETRO_MQTT_PORT",         value = tostring(var.mqtt_port) },
+        { name = "REMETRO_MQTT_CLIENT_ID",    value = var.mqtt_client_id },
       ]
     }
   ])
