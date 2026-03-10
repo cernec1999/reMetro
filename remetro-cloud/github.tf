@@ -69,6 +69,9 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "ecs:DescribeCapacityProviders",
       # CloudWatch Logs
       "logs:DescribeLogGroups",
+      "logs:ListTagsForResource",
+      # IAM inline policies
+      "iam:GetRolePolicy",
       # Secrets Manager
       "secretsmanager:DescribeSecret",
       "secretsmanager:GetResourcePolicy",
